@@ -212,6 +212,12 @@ def choose(fv: pd.DataFrame) -> pd.DataFrame:
                 note = f"balance-sheet value {cands['cso']:.0f} not used (x{cands['cso'] / cands['wab']:.3g} vs wab)"
         if cands[kind] != getattr(r, kind):
             note = (note + "; " if note else "") + "rescaled from thousands/millions"
+        v = cands[kind]
+        if kind in INSTANT and abs(v - round(v)) > 1e-6 and v < 1e7:
+            # A point-in-time share count is a whole number; a fractional one under 10M
+            # was tagged in thousands (QXO's cover: 673,556.656 shares).
+            cands[kind] = v * 1000.0
+            note = (note + "; " if note else "") + "fractional count read as thousands"
         unit = CLASS_UNITS.get(int(r.cik))
         if unit and cands[kind] < unit[0]:
             cands[kind] *= unit[1]

@@ -237,3 +237,10 @@ def test_rescue_never_inflates_a_small_hot_stock():
     # really 400k shares, $20m float: hot microcap with 500%/day turnover stays as reported
     out, fixes = _rescue_case(400_000.0, 2.0e7)
     assert out["shares_adj"].iloc[0] == 400_000.0 and not fixes
+
+
+def test_fractional_small_count_is_thousands():
+    c = shares.choose(_fv(eso=673_556.656))
+    assert c.loc[0, "shares_reported"] == pytest.approx(673_556_656.0)
+    c = shares.choose(_fv(eso=64_562_265.5))  # large fractional count (DRIP shares) is real
+    assert c.loc[0, "shares_reported"] == 64_562_265.5
