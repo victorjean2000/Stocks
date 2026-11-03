@@ -100,8 +100,16 @@ def extract_share_filings(s: pd.DataFrame, fsds_raw: pd.DataFrame, px: pd.DataFr
     ciks = s.loc[s["keep"] & s["cik"].notna(), "cik"].astype(int).unique().tolist()
     fv = _candidates(ciks, fsds_raw)
     trimmed, _ = panel.trim_dead_history(px)
-    late = successors.late_starters(s, shares.choose(fv), trimmed)
-    links = successors.find_predecessors(late)
+    own = shares.choose(fv)
+    late = successors.late_starters(s, own, trimmed)
+    prim = panel.primary_tickers(s, trimmed)
+    prim = prim[prim["is_primary"]][["cik", "ticker"]]
+    late_tickers = prim[prim["cik"].astype(int).isin(set(late))]
+    tp = trimmed[trimmed["ticker"].isin(set(late_tickers["ticker"]))]
+    by_ticker = {t: g.set_index("date")["close_raw"] for t, g in tp.groupby("ticker")}
+    closes = {int(c): by_ticker.get(t) for c, t in zip(late_tickers["cik"], late_tickers["ticker"])}
+    listed = set(s.loc[s["keep"] & s["cik"].notna(), "cik"].astype(int))
+    links = successors.find_predecessors(late, own, lambda c: _candidates(c, fsds_raw), closes, listed)
     if len(links):
         pred = _candidates(links["predecessor_cik"].astype(int).tolist(), fsds_raw)
         to_succ = dict(zip(links["predecessor_cik"], links["cik"]))

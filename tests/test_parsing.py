@@ -99,7 +99,24 @@ def test_sector_map(sic, cik, sector):
     ("BlackRock, Inc.", "BlackRock Finance, Inc.", True),
     ("ExxonMobil Holdings Corp", "DONNELLEY FINANCIAL, LLC", False),
     ("Meta Platforms, Inc.", "Metallus Inc.", False),
+    ("Cigna Group", "Cigna Holding Co", True),
+    ("QuidelOrtho Corp", "QUIDEL CORP /DE/", True),
+    ("Intercure Ltd.", "INTERDYNE CO", False),
+    ("Solaris Resources Inc.", "SolarWinds Corp", False),
+    ("INTERCONTINENTAL HOTELS GROUP PLC /NEW/", "INTERLEUKIN GENETICS INC", False),
+    ("Legacy Housing Corp", "LegacyTexas Financial Group, Inc.", False),
 ])
 def test_successor_name_match(new, old, match):
     from stockdata.successors import _names_match
     assert _names_match(new, old) is match
+
+
+def test_successor_public_float_check():
+    from stockdata.successors import _float_consistent
+    closes = pd.Series([100.0] * 5, index=pd.bdate_range("2024-06-24", periods=5))
+    filings = pd.DataFrame({"as_of": [pd.Timestamp("2024-04-20")], "shares_reported": [4.0e9]})
+    real = pd.DataFrame({"end": [pd.Timestamp("2024-06-28")], "val": [3.6e11]})   # 90% of 4bn x $100
+    shell = pd.DataFrame({"end": [pd.Timestamp("2024-06-28")], "val": [2.0e6]})   # a shell with a similar name
+    assert _float_consistent(real, filings, closes) is True
+    assert _float_consistent(shell, filings, closes) is False
+    assert _float_consistent(pd.DataFrame(columns=["end", "val"]), filings, closes) is None

@@ -35,6 +35,7 @@ BULK_URLS = {
     "submissions": "https://www.sec.gov/Archives/edgar/daily-index/bulkdata/submissions.zip",
 }
 FSDS_URL = "https://www.sec.gov/files/dera/data/financial-statement-data-sets/{q}.zip"
+FSDS_CACHE_VERSION = 1  # bump when _fsds_extract changes, so cached quarters are re-extracted
 
 ANNUAL_FORMS = ("10-K", "10-K/A", "10-KT", "10-KT/A", "20-F", "20-F/A", "40-F", "40-F/A")
 PERIODIC_FORMS = ANNUAL_FORMS + ("10-Q", "10-Q/A")
@@ -244,7 +245,7 @@ def update_fsds(sess: requests.Session, workers: int = 4) -> pd.DataFrame:
     cache_files = []
     todo = []
     for q in quarters:
-        cache = p.raw_fsds / f"{q}_shares.parquet"
+        cache = p.raw_fsds / f"{q}_shares_v{FSDS_CACHE_VERSION}.parquet"
         cache_files.append(cache)
         if cache.exists():
             continue
@@ -266,6 +267,16 @@ def update_fsds(sess: requests.Session, workers: int = 4) -> pd.DataFrame:
     if not parts:
         return pd.DataFrame()
     df = pd.concat(parts, ignore_index=True)
+    df["cik"] = df["cik"].astype(int)
+    return df
+
+
+def load_fsds_cache() -> pd.DataFrame:
+    """All cached FSDS share extracts (no downloads)."""
+    files = sorted(paths().raw_fsds.glob(f"*_shares_v{FSDS_CACHE_VERSION}.parquet"))
+    if not files:
+        return pd.DataFrame()
+    df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
     df["cik"] = df["cik"].astype(int)
     return df
 

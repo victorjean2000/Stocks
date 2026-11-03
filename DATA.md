@@ -42,12 +42,15 @@ retried with backoff on 429/5xx/network errors.
 3. **Shares** (`stockdata/shares.py`). One count per filing, in order of preference:
    `dei:EntityCommonStockSharesOutstanding` (cover page), `us-gaap:CommonStockSharesOutstanding` (or
    IFRS `NumberOfSharesOutstanding`), weighted-average basic, weighted-average diluted. The cover value
-   wins unless two other counts from the same filing agree with each other and both differ from it by
-   more than 3x (BABA's 2026 20-F cover said 1.86bn, its balance sheet and weighted average 18.6bn).
-   A single disagreeing balance-sheet count never overrides the cover: many filers tag issued shares
-   (incl. treasury) as outstanding (BKNG, ZBH) or report in thousands (CAL); references about 1,000x or
-   1,000,000x off are rescaled. Without a cover value, the weighted average beats a balance-sheet count
-   that disagrees with it by more than 15%. Values under 10,000 shares are ignored. Every override is in
+   wins unless two other counts from the same filing agree with each other and the cover is more than
+   3x below them (BABA's 2026 20-F cover said 1.86bn, its balance sheet and weighted average 18.6bn) or
+   about 1,000x above them with an implausible count (units error). A cover far above the period-end
+   counts is kept: stock issued in a merger or SPAC closing after quarter end makes it legitimately
+   larger. A single disagreeing balance-sheet count never overrides the cover: many filers tag issued
+   shares (incl. treasury) as outstanding (BKNG, ZBH) or report in thousands (CAL); references about
+   1,000x or 1,000,000x below the cover are rescaled when the result is a plausible count. Without a
+   cover value, the weighted average beats a balance-sheet count that disagrees with it by more than
+   15%. Values under 10,000 shares are ignored. Every override is in
    `data/reports/cover_values_rejected.csv`. Filers that report only per class get the classes added up
    from the Financial Statement Data Sets. Isolated outliers (a >2.5x jump that reverts at the next
    filing) are dropped and listed in `data/reports/share_problems.csv`.
@@ -73,13 +76,26 @@ retried with backoff on 429/5xx/network errors.
   basis with that day's split factor:
   `mcap(t) = close_raw(t) / split_factor(t) * shares_reported * split_factor(basis_date)`.
   This is recomputed on every update, so a new split never breaks older history.
+- **Reorganized companies.** When a holding-company reorganization or redomicile moved the ticker to a
+  new CIK (XOM 2026, Bunge 2023, AngloGold 2023, BlackRock 2024, Navient 2026...), the new CIK inherits
+  the old CIK's filings from before its own first filing (`stockdata/successors.py`, links in
+  `data/reports/successor_links.csv`, with the evidence used). The old CIK must have no ticker today; its
+  name without legal words (Inc, Corp, Ltd, plc, Holdings, Group...) must be a prefix of the new name or
+  a former name, or it must be a SPAC that filed jointly with the new CIK; it must hand over within 400
+  days with a share count within 2x; and its own reported public float must fit its share count times
+  this ticker's price (15%-160%), or, without float data, the names must be identical. This rejects
+  look-alikes such as a shell called "Square Chain Corp" for Block.
+- **Cover dates after the filing date** (tagging errors, up to 10 years off) are clamped to the filing date.
 - **Multi-class companies.** Shares are company totals (all classes). One share class per CIK is
   `is_primary` (highest median dollar volume). `mcap` is the company market cap (total shares x primary
   class price) on every class's rows. Only the primary class can be `in_universe`, so GOOGL and GOOG
-  are never both selected. Berkshire's counts are in Class B equivalents, so BRK.B is primary.
+  are never both selected. Berkshire's counts are in Class B equivalents (its 2016-2017 filings only give
+  Class A equivalents, converted at the fixed 1 A = 1,500 B), so BRK.B is primary.
 - **ADRs.** 20-F filers report ordinary shares; for ADRs the count is divided by the ADS ratio
-  (ordinary shares per ADS) parsed from the Alpaca name or the latest 20-F. ADRs keep prices and a
-  best-effort `mcap` but are excluded from `in_universe` by default (`UNIVERSE_SECURITY_TYPES`).
+  (ordinary shares per ADS) parsed from the Alpaca name or the latest 20-F. Earlier ratios are inferred:
+  a jump in ordinary shares by a clean factor with no ADS split means a home-market split changed the
+  ratio (BABA 2019: 8-for-1, 1 ADS = 1 -> 8 shares). ADRs keep prices and a best-effort `mcap` but are
+  excluded from `in_universe` by default (`UNIVERSE_SECURITY_TYPES`).
 
 ## Sector
 
@@ -133,17 +149,40 @@ Incremental price logic: each run re-downloads the last 5 sessions for every tic
 adjusted closes for those days changed (a new dividend or split re-adjusts all history), that ticker's
 adjusted history is downloaded again; raw history is only appended. New tickers get full history.
 
-## Session start and snapshots
+## Persistence: new cloud sessions
 
-See "Persistence" below for timings. `.claude/hooks/session-start.sh` runs on every cloud session:
-it installs Python dependencies if needed and starts `python -m stockdata sync` in the background.
-`sync` restores the latest encrypted snapshot (release `data-snapshot`) when `STOCKDATA_SNAPSHOT_KEY`
-is set, otherwise builds from scratch, then runs an incremental update.
+Every cloud session starts on a fresh machine with no `data/`. Measured here (4 vCPU, 16 GB):
 
-The snapshot is produced by `.github/workflows/data-snapshot.yml` (weekdays 23:37 UTC and on demand).
-The repository is public and Alpaca data may not be redistributed, so the snapshot is always encrypted
-with `STOCKDATA_SNAPSHOT_KEY` (AES-256, openssl). Raw SEC zips (3 GB) are not in the snapshot; they are
-re-downloaded when SEC data is refreshed.
+| step | time |
+|---|---|
+| full rebuild from nothing (`python -m stockdata update` on an empty `data/`) | FULL_REBUILD |
+| of which: prices, 10.5M daily bars x 2 passes at the free 200 req/min | ~13 min |
+| of which: SEC downloads (3 GB bulk + 51 quarterly data sets) + ADR checks, in parallel with prices | ~9 min |
+| of which: share extraction, panel, validation (after prices) | ~4 min |
+| incremental top-up, one new session, SEC not due | ~3 min |
+| restore an encrypted snapshot (download, decrypt, unpack) | RESTORE_TIME |
+
+Chosen approach (simplest that is fast and keeps market data private):
+
+1. **SessionStart hook** (`.claude/hooks/session-start.sh`, registered in `.claude/settings.json`). It
+   installs dependencies when they change and starts `python -m stockdata sync` fully detached, so the
+   session is never held up. `sync` restores the latest snapshot when `STOCKDATA_SNAPSHOT_KEY` is set,
+   otherwise builds from scratch, then tops up incrementally. Progress: `python -m stockdata status`,
+   log in `data/logs/sync.log`. Re-runs on resume/compact are no-ops (lock + 6-hour freshness check).
+2. **Encrypted snapshot on a GitHub release**, built by `.github/workflows/data-snapshot.yml` (weekdays
+   23:37 UTC and on demand). The repository is public and Alpaca market data may not be redistributed,
+   so the snapshot is always encrypted (AES-256, openssl, key `STOCKDATA_SNAPSHOT_KEY`); the pack step
+   refuses to run without the key. The snapshot excludes the 3 GB SEC bulk zips (re-downloaded only when
+   SEC data is refreshed, at most once per 20 hours). Size: SNAPSHOT_SIZE.
+
+Without the snapshot (nothing configured) sessions still work: the hook rebuilds in the background and
+data is ready after about FULL_REBUILD. With the snapshot, data is ready in about RESTORE_TIME.
+
+To enable the snapshot (one-time):
+- GitHub repo, Settings > Secrets and variables > Actions: add `ALPACA_API_KEY_ID`,
+  `ALPACA_API_SECRET_KEY`, `SEC_USER_AGENT` and `STOCKDATA_SNAPSHOT_KEY` (any long random string).
+- Claude Code cloud environment settings: add `STOCKDATA_SNAPSHOT_KEY` with the same value.
+- Run the `data-snapshot` workflow once (Actions tab, Run workflow), or wait for the schedule.
 
 ## Known gaps
 
@@ -171,3 +210,7 @@ See `data/reports/validation.md` and `data/reports/problems.csv` for the current
   batch are re-requested one by one.
 - Shares come from XBRL filings, so a company's first value appears with its first 10-Q/10-K/20-F after
   listing; recent IPOs have no market cap until then.
+- Business development companies (ARCC, BXSL, OBDC, FSK, MAIN...) only started tagging XBRL in 2022, so
+  they have no market cap, and cannot be in the universe, before their first tagged filing.
+- Tracking stocks (Liberty Media's FWONA/FWONK and similar) share one CIK with other trackers, so their
+  "company" share count is not specific to the tracker; check `data/reports/problems.csv`.
