@@ -374,6 +374,57 @@ def fix_units_errors(ev: pd.DataFrame, prices: pd.DataFrame, primary: pd.DataFra
     return ev, fixes
 
 
+def rescue_units(ev: pd.DataFrame, prices: pd.DataFrame, primary: pd.DataFrame,
+                 public_float: pd.DataFrame | None) -> tuple[pd.DataFrame, list]:
+    """Fix companies whose EVERY filing is in thousands (QXO's cover reads 673,556.656 shares).
+
+    With no break in the series, the signal is an absurd median daily turnover
+    (dollar volume / market cap, normally 0.01%-5%). The whole series is rescaled by
+    1,000 or 1,000,000 only if that makes turnover normal AND the company's own reported
+    public float (USD) agrees with the rescaled market cap; without float data only
+    extreme cases (turnover > 300%/day) are rescaled. A genuinely tiny company with a
+    hot stock has a small public float, so it is never inflated.
+    """
+    ev = ev.copy()
+    fixes = []
+    prim = primary[["cik", "ticker"]].drop_duplicates("cik")
+    q = prices.merge(prim, on="ticker", how="inner")[["cik", "date", "close_raw", "volume", "split_factor"]]
+    q = q.assign(cik=q["cik"].astype("int64"), date=q["date"].astype("datetime64[ns]")).sort_values("date")
+    e = ev[["cik", "effective", "shares_adj"]].dropna().assign(
+        cik=lambda d: d["cik"].astype("int64"), effective=lambda d: d["effective"].astype("datetime64[ns]"))
+    m = pd.merge_asof(q, e.sort_values("effective"), left_on="date", right_on="effective", by="cik")
+    m = m[(m["volume"] > 0) & m["shares_adj"].notna()]
+    tv = (m["close_raw"] * m["volume"]) / (m["close_raw"] / m["split_factor"] * m["shares_adj"])
+    turnover = tv.groupby(m["cik"]).median()
+    pf = public_float if public_float is not None else pd.DataFrame(columns=["cik", "end", "val"])
+    for cik, T in turnover.items():
+        if 1e-6 <= T <= 0.3:
+            continue
+        for k in (1e3, 1e6):
+            k = k if T > 0.3 else 1 / k
+            T2 = T / k
+            if not (3e-5 <= T2 <= 0.05):
+                continue
+            g = m[m["cik"] == cik]
+            votes = []
+            for r in pf[pf["cik"] == cik].sort_values("end").tail(3).itertuples(index=False):
+                day = g[g["date"] <= pd.Timestamp(r.end)].tail(1)
+                if len(day) and (pd.Timestamp(r.end) - day["date"].iloc[0]).days <= 10:
+                    mc = float(day["close_raw"].iloc[0] / day["split_factor"].iloc[0] * day["shares_adj"].iloc[0] * k)
+                    votes.append(0.15 <= r.val / mc <= 1.6)
+            ok = (sum(votes) > len(votes) / 2) if votes else (T > 3 or T < 1e-7)
+            if ok:
+                sel = ev["cik"] == cik
+                ev.loc[sel, ["shares_reported", "shares_adj"]] = ev.loc[sel, ["shares_reported", "shares_adj"]] * k
+                ev.loc[sel, "note"] = ev.loc[sel, "note"].fillna("").astype(str) + f"; whole series x{k:g} (turnover)"
+                fixes.append({"cik": cik, "accn": "", "filed": ev.loc[sel, "filed"].max(),
+                              "issue": f"units error fixed: whole series x{k:g} (turnover {T:.3g}/day -> {T2:.3g}, "
+                                       f"public float {'agrees' if votes else 'not available'})",
+                              "value": float(ev.loc[sel, "shares_reported"].iloc[-1])})
+            break
+    return ev, fixes
+
+
 def clean_series(ev: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Drop going-back-in-time amendments and isolated outliers. Returns (kept, problems)."""
     kept, probs = [], []

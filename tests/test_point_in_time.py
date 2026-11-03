@@ -214,3 +214,26 @@ def test_units_error_fixed_by_turnover():
     ev2 = ev.assign(shares_adj=[2.5e4, 5.5e8, 5.5e8, 5.5e8, 5.5e8], shares_reported=[2.5e4, 5.5e8, 5.5e8, 5.5e8, 5.5e8])
     out2, fixes2 = shares.fix_units_errors(ev2, px, prim)
     assert not fixes2 and out2["shares_adj"].iloc[0] == 2.5e4
+
+
+def _rescue_case(shares_val, pf_val, close=50.0, volume=2_000_000):
+    d = pd.bdate_range("2025-01-02", "2025-12-31")
+    px = pd.DataFrame({"ticker": "TEM", "date": d, "close_raw": close, "volume": volume, "split_factor": 1.0})
+    filed = pd.to_datetime(["2025-02-24", "2025-05-05", "2025-08-08", "2025-11-04"])
+    ev = pd.DataFrame({"cik": 5, "accn": list("abcd"), "filed": filed, "as_of": filed - pd.Timedelta(days=30),
+                       "shares_reported": shares_val, "shares_adj": shares_val, "note": "", "kind": "wab"})
+    ev["effective"] = shares.effective_dates(ev["filed"], d)
+    pf = pd.DataFrame({"cik": [5], "end": [pd.Timestamp("2025-06-30")], "val": [pf_val]})
+    return shares.rescue_units(ev, px, pd.DataFrame({"cik": [5], "ticker": ["TEM"]}), pf)
+
+
+def test_rescue_whole_series_in_thousands():
+    # 173,381 "shares" at $50 trading $100m/day = 1,150% turnover; float $6bn agrees with 173M shares
+    out, fixes = _rescue_case(173_381.0, 6.0e9)
+    assert out["shares_adj"].iloc[0] == pytest.approx(173_381_000.0) and len(fixes) == 1
+
+
+def test_rescue_never_inflates_a_small_hot_stock():
+    # really 400k shares, $20m float: hot microcap with 500%/day turnover stays as reported
+    out, fixes = _rescue_case(400_000.0, 2.0e7)
+    assert out["shares_adj"].iloc[0] == 400_000.0 and not fixes

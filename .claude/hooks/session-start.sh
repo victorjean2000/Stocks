@@ -3,7 +3,7 @@
 #  1. Installs the Python dependencies when requirements/pyproject change.
 #  2. Starts `python -m stockdata sync` fully detached, so the session is not
 #     held up. sync restores the encrypted snapshot when STOCKDATA_SNAPSHOT_KEY
-#     is set (else builds from scratch, ~25 min) and then tops up incrementally.
+#     is set (else builds from scratch; timings in DATA.md) and then tops up.
 #     Progress: data/logs/sync.log, or `python -m stockdata status`.
 set -euo pipefail
 

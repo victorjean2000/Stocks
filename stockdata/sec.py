@@ -184,6 +184,12 @@ def _facts_worker(args) -> list[dict]:
                     out.append({"cik": cik, "concept": concept, "start": r.get("start"), "end": r["end"],
                                 "val": r["val"], "accn": r["accn"], "form": r.get("form"),
                                 "filed": r["filed"], "fp": r.get("fp")})
+            # Public float (USD) is an independent size anchor for sanity checks on share counts.
+            for r in facts.get("dei", {}).get("EntityPublicFloat", {}).get("units", {}).get("USD", []):
+                if r.get("filed", "") >= FILINGS_START:
+                    out.append({"cik": cik, "concept": "EntityPublicFloat", "start": None, "end": r["end"],
+                                "val": r["val"], "accn": r["accn"], "form": r.get("form"),
+                                "filed": r["filed"], "fp": r.get("fp")})
     return out
 
 

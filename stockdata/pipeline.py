@@ -81,9 +81,15 @@ def refresh_securities(alp_sess) -> pd.DataFrame:
     return finish_securities(build_securities(alp_sess))
 
 
+_PUBLIC_FLOAT: list[pd.DataFrame] = []
+
+
 def _candidates(ciks: list[int], fsds_raw: pd.DataFrame) -> pd.DataFrame:
     t = time.time()
     cf = sec.share_facts_companyfacts(ciks)
+    if len(cf):
+        _PUBLIC_FLOAT.append(cf.loc[cf["concept"] == "EntityPublicFloat", ["cik", "end", "val", "filed"]])
+        cf = cf[cf["concept"] != "EntityPublicFloat"]
     fs = sec.share_facts_fsds(fsds_raw, ciks)
     fv = shares.filing_values(cf, fs)
     log.info("share candidates: %d filings for %d CIKs (%.0fs)", len(fv), len(ciks), time.time() - t)
@@ -121,6 +127,12 @@ def extract_share_filings(s: pd.DataFrame, fsds_raw: pd.DataFrame, px: pd.DataFr
         fv = pd.concat([fv, pred], ignore_index=True).drop_duplicates(["cik", "accn"], keep="first")
         log.info("inherited %d predecessor filings for %d companies", len(pred), pred["cik"].nunique())
     fv.to_parquet(p.sec / "share_candidates.parquet", index=False)  # lets choose() be re-run cheaply
+    if _PUBLIC_FLOAT:
+        pf = pd.concat(_PUBLIC_FLOAT, ignore_index=True)
+        if len(links):
+            pf["cik"] = pf["cik"].replace(dict(zip(links["predecessor_cik"], links["cik"])))
+        pf.drop_duplicates(["cik", "end"]).to_parquet(p.sec / "public_float.parquet", index=False)
+        _PUBLIC_FLOAT.clear()
     chosen = shares.choose(fv)
     chosen.to_parquet(p.sec / "share_filings.parquet", index=False)
     chosen[chosen["note"] != ""].to_csv(p.reports / "cover_values_rejected.csv", index=False)
@@ -137,6 +149,10 @@ def derive_share_events(s: pd.DataFrame, px: pd.DataFrame, filings: pd.DataFrame
     future = pd.bdate_range(sessions[-1] + pd.Timedelta(days=1), periods=10)
     ev["effective"] = shares.effective_dates(ev["filed"], sessions.append(future))
     ev, unit_fixes = shares.fix_units_errors(ev, px, prim[prim["is_primary"]])
+    pf_path = p.sec / "public_float.parquet"
+    pf = pd.read_parquet(pf_path) if pf_path.exists() else None
+    ev, more = shares.rescue_units(ev, px, prim[prim["is_primary"]], pf)
+    unit_fixes += more
     ev, probs = shares.clean_series(ev)
     if unit_fixes:
         probs = pd.concat([probs, pd.DataFrame(unit_fixes)], ignore_index=True)

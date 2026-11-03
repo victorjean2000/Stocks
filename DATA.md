@@ -54,6 +54,14 @@ retried with backoff on 429/5xx/network errors.
    `data/reports/cover_values_rejected.csv`. Filers that report only per class get the classes added up
    from the Financial Statement Data Sets. Isolated outliers (a >2.5x jump that reverts at the next
    filing) are dropped and listed in `data/reports/share_problems.csv`.
+   **Units errors.** Some filers tag counts in thousands. When a company's series breaks by about 1,000x
+   or 1,000,000x (CPK and SKY covers showed 23.5bn / 57.6bn shares for several quarters; RY's and DKNG's
+   weighted counts were in thousands), each piece is put on the level whose implied daily turnover
+   (dollar volume / market cap) is normal. When every filing is in thousands (QXO's cover reads
+   673,556.656 shares, Tempus 173,381), the whole series is rescaled only if turnover becomes normal and
+   the company's own reported public float (USD) agrees; without float data only extreme cases (over
+   300%/day) are rescaled. A genuinely small company with a hot stock has a small float and is never
+   inflated. Every fix is listed in `share_problems.csv`.
 4. **Panel** (`stockdata/panel.py`). Prices joined with the latest share count that was usable on
    each date, market cap, sector and the universe flag. Before that, each ticker's history is trimmed
    to start after its last stretch of 20+ sessions without trading: Alpaca returns everything ever
@@ -159,7 +167,8 @@ Every cloud session starts on a fresh machine with no `data/`. Measured here (4 
 | of which: prices, 10.5M daily bars x 2 passes at the free 200 req/min | ~13 min |
 | of which: SEC downloads (3 GB bulk + 51 quarterly data sets) + ADR checks, in parallel with prices | ~9 min |
 | of which: share extraction, panel, validation (after prices) | ~4 min |
-| incremental top-up, one new session, SEC not due | ~3 min |
+| incremental top-up, one new session, SEC not due (last SEC refresh < 20 h ago) | ~3 min (200 s measured) |
+| incremental top-up including the daily SEC refresh (re-downloads the 3 GB bulk zips) | ~9 min (563 s measured) |
 | restore an encrypted snapshot (download, decrypt, unpack) | RESTORE_TIME |
 
 Chosen approach (simplest that is fast and keeps market data private):
@@ -196,8 +205,13 @@ See `data/reports/validation.md` and `data/reports/problems.csv` for the current
 - Multi-class companies that report only per class rely on the quarterly Financial Statement Data Sets,
   which are published after each quarter ends, so their newest filing can lag by up to about 3 months.
   Visa's classes are added unconverted (B/C shares count 1:1), slightly understating its market cap.
-- ADRs: the ADS ratio is today's; a past ratio change that Alpaca did not treat as a split distorts older
-  ADR market caps. ADRs are outside the default universe.
+- ADRs: past ADS ratios are inferred from clean jumps in the ordinary share count (BABA 2019 checks out);
+  ratio changes without such a jump, or 55 ADRs whose ratio could not be parsed, leave older ADR market
+  caps wrong or empty. ADRs are outside the default universe.
+- Successor edge cases: when a merger created the listed entity, Alpaca's price history can belong to a
+  different predecessor than the SEC one (FUN: prices before July 2024 are Cedar Fair's, shares are old
+  Six Flags'), and a spun-off asset manager can show its former parent's prices (BAM before Dec 2022).
+  Both are listed in `successor_links.csv` / `problems.csv`.
 - Unadjusted price jumps: a one-day raw price ratio within 3% of a clean fraction (x2, x0.5, x5...)
   with no recorded split, the volume level moving by the inverse ratio and no event-day volume spike is
   treated as a corporate action Alpaca did not adjust. The next 260 sessions get `data_issue` and leave
