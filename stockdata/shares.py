@@ -306,6 +306,74 @@ def _adr_ratio_history(g: pd.DataFrame, ratio_now: float) -> tuple[np.ndarray, l
     return ratios, notes
 
 
+def fix_units_errors(ev: pd.DataFrame, prices: pd.DataFrame, primary: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+    """Fix runs of filings tagged in thousands (or millions) vs units.
+
+    Some filers report several consecutive quarters 1,000x off (CPK and SKY covers
+    showed 23.5bn / 57.6bn shares; RY's and DKNG's weighted counts were in thousands).
+    The series is split at ~1,000x / ~1,000,000x breaks, and every piece is put on the
+    level whose implied daily turnover (dollar volume / market cap) is most plausible:
+    the true level trades about 0.01%-5% of the company per day, a 1,000x error does not.
+    """
+    ev = ev.copy()
+    fixes = []
+    prim = primary[["cik", "ticker"]].drop_duplicates("cik").set_index("cik")["ticker"]
+    # First find the companies with a ~1,000x / ~1,000,000x break, then load only their prices.
+    todo = []
+    for cik, g in ev.groupby("cik", sort=False):
+        g = g.sort_values(["filed", "as_of"])
+        v = g["shares_adj"].to_numpy(dtype="float64")
+        if len(v) < 2 or not np.isfinite(v).all() or (v <= 0).any():
+            continue
+        r = np.log10(v[1:] / v[:-1])
+        k = np.where(np.abs(r - np.round(r / 3) * 3) < 0.35, np.round(r / 3) * 3, 0)  # 0, +-3, +-6
+        if k.any() and cik in prim.index:
+            todo.append((cik, g, v, np.concatenate([[0.0], np.cumsum(k)])))
+    if not todo:
+        return ev, fixes
+    tickers = {prim[c] for c, *_ in todo}
+    px_by = {t: q.sort_values("date") for t, q in
+             prices.loc[prices["ticker"].isin(tickers), ["ticker", "date", "close_raw", "volume",
+                                                         "split_factor"]].groupby("ticker")}
+    for cik, g, v, level in todo:  # level: each filing's exponent relative to the first
+        q = px_by.get(prim[cik])
+        if q is None or q.empty:
+            continue
+        dv = (q["close_raw"] * q["volume"]).to_numpy()
+        adj_px = (q["close_raw"] / q["split_factor"]).to_numpy()
+        dates = q["date"].to_numpy(dtype="datetime64[ns]")
+        eff = g["effective"].to_numpy(dtype="datetime64[ns]")
+        turnover = {}
+        for L in np.unique(level):
+            vals = []
+            for i in np.flatnonzero(level == L):
+                lo = np.searchsorted(dates, eff[i])
+                hi = np.searchsorted(dates, eff[i + 1]) if i + 1 < len(eff) else lo + 60
+                hi = min(hi, lo + 60, len(dates))
+                if hi > lo:
+                    mc = adj_px[lo:hi] * v[i]
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        tv = dv[lo:hi] / mc
+                    vals.extend(tv[np.isfinite(tv) & (tv > 0)].tolist())
+            if vals:
+                turnover[L] = float(np.median(vals))
+        if not turnover:
+            continue
+        best = min(turnover, key=lambda L: abs(np.log10(turnover[L] / 3e-3)))
+        idx = g.index.to_numpy()
+        for i, L in enumerate(level):
+            if L != best:
+                factor = 10.0 ** (best - L)
+                ev.loc[idx[i], ["shares_reported", "shares_adj"]] = ev.loc[idx[i], ["shares_reported", "shares_adj"]] * factor
+                note = ev.loc[idx[i], "note"]
+                note = note if isinstance(note, str) else ""
+                ev.loc[idx[i], "note"] = (note + "; " if note else "") + f"units error fixed (x{factor:g})"
+                fixes.append({"cik": cik, "accn": ev.loc[idx[i], "accn"], "filed": ev.loc[idx[i], "filed"],
+                              "issue": f"units error fixed: x{factor:g} (turnover check)",
+                              "value": ev.loc[idx[i], "shares_reported"]})
+    return ev, fixes
+
+
 def clean_series(ev: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Drop going-back-in-time amendments and isolated outliers. Returns (kept, problems)."""
     kept, probs = [], []

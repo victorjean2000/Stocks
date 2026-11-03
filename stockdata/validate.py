@@ -37,6 +37,10 @@ KNOWN_MCAPS = [
     ("META", "2022-12-30", 316), ("BRK.B", "2022-12-30", 676), ("JPM", "2019-12-31", 429),
     ("XOM", "2016-12-30", 374), ("V", "2021-12-31", 460), ("JNJ", "2018-12-31", 346),
     ("WMT", "2023-12-29", 424), ("KO", "2017-12-29", 196),
+    # special cases: Berkshire A->B units, successor CIKs, ADR ratio history
+    ("BRK.B", "2016-12-30", 401), ("DIS", "2017-12-29", 162), ("BLK", "2021-12-31", 139),
+    ("CI", "2019-12-31", 76), ("BG", "2020-12-31", 9.2), ("AVGO", "2017-12-29", 105),
+    ("BABA", "2018-12-31", 355),
 ]
 
 
@@ -75,32 +79,49 @@ def mcap_checks(pnl: pd.DataFrame) -> pd.DataFrame:
 
 
 def problems(s: pd.DataFrame, px: pd.DataFrame, ev: pd.DataFrame, pnl: pd.DataFrame) -> pd.DataFrame:
-    """Tickers that could plausibly be in the universe but have a data gap."""
+    """Liquid tickers (price >= $10 and ADV >= $25m on some day) with a data gap, most serious first."""
     out = []
     p = paths()
     elig = (pnl["close_raw"] >= MIN_PRICE) & (pnl["adv50"] >= MIN_ADV)
-    e = pnl.loc[elig, ["ticker", "mcap"]]
+    e = pnl.loc[elig, ["ticker", "date", "mcap"]]
     liquid = sorted(e["ticker"].unique())
-    miss = e["mcap"].isna().groupby(e["ticker"]).mean()
-    first_ok = pnl.loc[pnl["mcap"].notna()].groupby("ticker")["date"].min()
+    first_liquid = e.groupby("ticker")["date"].min()
+    first_mcap = pnl.loc[pnl["mcap"].notna()].groupby("ticker")["date"].min()
+    e = e.assign(first=e["ticker"].map(first_mcap))
+    gap_days = e[e["mcap"].isna() & (e["date"] > e["first"])].groupby("ticker").size()
     issue = pnl.loc[pnl["data_issue"].notna()].groupby("ticker")["data_issue"].first()
+    ever_in = set(pnl.loc[pnl["in_universe"], "ticker"].unique())
+    # Turnover sanity: a share count off by ~1,000x everywhere has no break to detect, but its
+    # implied daily turnover (dollar volume / market cap) is absurd.
+    m = pnl.loc[elig & pnl["mcap"].notna() & (pnl["mcap"] > 0), ["ticker", "dollar_volume", "mcap"]]
+    turnover = (m["dollar_volume"] / m["mcap"]).groupby(m["ticker"]).median()
     keep = s[s["keep"]].set_index("ticker")
     for t in liquid:
         if t not in keep.index:
             continue
         r = keep.loc[t]
         if pd.isna(r["cik"]):
-            out.append((t, "no_sec_cik", "ticker not in SEC company_tickers_exchange.json (bank filing with FDIC/OCC, "
-                                         "or new listing); no shares, no market cap"))
+            out.append((t, "no_sec_cik", "not in SEC's ticker file (e.g. a bank filing with the FDIC/OCC): "
+                                         "no shares, no market cap"))
             continue
         adr_no_ratio = r["security_type"] == "adr" and pd.isna(r.get("ads_ratio"))
         if adr_no_ratio:
             out.append((t, "adr_ratio_unknown", "ADS ratio not found in the 20-F; market cap left empty"))
-        m = miss.get(t, 0.0)
-        if m > 0.02 and not adr_no_ratio:
-            f = first_ok.get(t)
-            out.append((t, "mcap_missing", f"market cap missing on {m:.0%} of liquid days"
-                        f" (first value {f.date() if f is not None and pd.notna(f) else 'never'})"))
+            continue
+        g = int(gap_days.get(t, 0))
+        if g > 20:
+            out.append((t, "mcap_gap", f"market cap missing on {g} liquid days after the first filing "
+                                       "(stale or missing filings)"))
+        f, fl = first_mcap.get(t), first_liquid.get(t)
+        if f is None or pd.isna(f):
+            out.append((t, "mcap_never", "no usable share count in any filing"))
+        elif (f - fl).days > 120:
+            out.append((t, "mcap_starts_late", f"liquid from {fl.date()}, first market cap {f.date()} "
+                                               "(first XBRL filing; BDCs only tag from 2022)"))
+        tv = turnover.get(t)
+        if tv is not None and (tv < 2e-5 or tv > 0.5):
+            out.append((t, "implausible_turnover", f"median daily turnover {tv:.2e} of market cap: share count "
+                                                   "probably off by a units factor"))
         if pd.isna(r["sector"]):
             out.append((t, "sector_missing", f"no sector for SIC {r['sic']}"))
         if t in issue.index:
@@ -115,9 +136,14 @@ def problems(s: pd.DataFrame, px: pd.DataFrame, ev: pd.DataFrame, pnl: pd.DataFr
             prim = pnl[pnl["is_primary"]].drop_duplicates("cik")[["cik", "ticker"]]
             spdf = spdf.merge(prim, on="cik", how="inner")
             spdf = spdf[spdf["ticker"].isin(set(liquid)) & (pd.to_datetime(spdf["filed"]) >= "2015-07-01")]
-            for r in spdf.itertuples(index=False):
+            serious = spdf["issue"].str.contains("outlier|ADS ratio|units error", regex=True)
+            jumps_in_universe = spdf["issue"].str.contains("changed") & spdf["ticker"].isin(ever_in)
+            for r in spdf[serious | jumps_in_universe].itertuples(index=False):
                 out.append((r.ticker, "share_count", f"{r.issue} (filed {str(r.filed)[:10]}, accn {r.accn})"))
-    return pd.DataFrame(out, columns=["ticker", "issue", "detail"]).drop_duplicates()
+    order = {"implausible_turnover": 0, "no_sec_cik": 1, "mcap_never": 2, "mcap_gap": 3, "price_jump": 4,
+             "share_count": 5, "adr_ratio_unknown": 6, "sector_missing": 7, "mcap_starts_late": 8}
+    df = pd.DataFrame(out, columns=["ticker", "issue", "detail"]).drop_duplicates()
+    return df.sort_values(["issue", "ticker"], key=lambda c: c.map(order) if c.name == "issue" else c)
 
 
 def universe_by_year(pnl: pd.DataFrame) -> pd.DataFrame:

@@ -133,15 +133,18 @@ def derive_share_events(s: pd.DataFrame, px: pd.DataFrame, filings: pd.DataFrame
     p = paths().ensure()
     prim = panel.primary_tickers(s, px)
     ev = shares.to_today_basis(filings, px[["ticker", "date", "split_factor"]], prim[prim["is_primary"]])
+    sessions = pd.DatetimeIndex(sorted(px["date"].unique()))
+    future = pd.bdate_range(sessions[-1] + pd.Timedelta(days=1), periods=10)
+    ev["effective"] = shares.effective_dates(ev["filed"], sessions.append(future))
+    ev, unit_fixes = shares.fix_units_errors(ev, px, prim[prim["is_primary"]])
     ev, probs = shares.clean_series(ev)
+    if unit_fixes:
+        probs = pd.concat([probs, pd.DataFrame(unit_fixes)], ignore_index=True)
     adr_notes = ev[ev["note"].fillna("").str.contains("ADS ratio change inferred")]
     if len(adr_notes):
         probs = pd.concat([probs, pd.DataFrame({"cik": adr_notes["cik"], "accn": adr_notes["accn"],
                                                 "filed": adr_notes["filed"], "issue": adr_notes["note"],
                                                 "value": adr_notes["shares_reported"]})], ignore_index=True)
-    sessions = pd.DatetimeIndex(sorted(px["date"].unique()))
-    future = pd.bdate_range(sessions[-1] + pd.Timedelta(days=1), periods=10)
-    ev["effective"] = shares.effective_dates(ev["filed"], sessions.append(future))
     ev.to_parquet(p.sec / "share_events.parquet", index=False)
     probs.to_csv(p.reports / "share_problems.csv", index=False)
     prim.to_parquet(p.universe / "primary_tickers.parquet", index=False)

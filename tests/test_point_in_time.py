@@ -195,3 +195,22 @@ def test_fsds_totals_vectorised_matches_rules():
 def test_as_of_after_filing_is_clamped():
     c = shares.choose(_fv(eso=5e7, eso_end=pd.Timestamp("2034-05-24")))  # typo year
     assert c.loc[0, "as_of"] == c.loc[0, "filed"] and "clamped" in c.loc[0, "note"]
+
+
+def test_units_error_fixed_by_turnover():
+    """CPK-like: three covers 1,000x too high, then correct values."""
+    d = pd.bdate_range("2025-01-02", "2026-06-30")
+    px = pd.DataFrame({"ticker": "CPK", "date": d, "close_raw": 120.0, "volume": 170_000, "split_factor": 1.0})
+    filed = pd.to_datetime(["2025-05-07", "2025-08-07", "2025-11-06", "2026-02-25", "2026-05-06"])
+    vals = [23.4e9, 23.5e9, 23.6e9, 23.9e6, 24.0e6]
+    ev = pd.DataFrame({"cik": 9, "accn": list("abcde"), "filed": filed, "as_of": filed - pd.Timedelta(days=3),
+                       "shares_reported": vals, "shares_adj": vals, "note": "", "kind": "eso"})
+    ev["effective"] = shares.effective_dates(ev["filed"], d)
+    prim = pd.DataFrame({"cik": [9], "ticker": ["CPK"]})
+    out, fixes = shares.fix_units_errors(ev, px, prim)
+    assert out["shares_adj"].tolist() == pytest.approx([23.4e6, 23.5e6, 23.6e6, 23.9e6, 24.0e6])
+    assert len(fixes) == 3
+    # a genuine big change (shell -> listed company, x22,000) is left alone
+    ev2 = ev.assign(shares_adj=[2.5e4, 5.5e8, 5.5e8, 5.5e8, 5.5e8], shares_reported=[2.5e4, 5.5e8, 5.5e8, 5.5e8, 5.5e8])
+    out2, fixes2 = shares.fix_units_errors(ev2, px, prim)
+    assert not fixes2 and out2["shares_adj"].iloc[0] == 2.5e4
