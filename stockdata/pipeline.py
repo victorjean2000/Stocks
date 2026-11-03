@@ -129,6 +129,9 @@ def extract_share_filings(s: pd.DataFrame, fsds_raw: pd.DataFrame, px: pd.DataFr
     fv.to_parquet(p.sec / "share_candidates.parquet", index=False)  # lets choose() be re-run cheaply
     if _PUBLIC_FLOAT:
         pf = pd.concat(_PUBLIC_FLOAT, ignore_index=True)
+        # Some filers tag absurd floats (one says $2.6e18); keep plausible USD amounts only.
+        pf["val"] = pd.to_numeric(pf["val"], errors="coerce").astype("float64")
+        pf = pf[pf["val"].between(1e5, 1e14)]
         if len(links):
             pf["cik"] = pf["cik"].replace(dict(zip(links["predecessor_cik"], links["cik"])))
         pf.drop_duplicates(["cik", "end"]).to_parquet(p.sec / "public_float.parquet", index=False)

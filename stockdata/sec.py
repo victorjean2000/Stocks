@@ -207,6 +207,7 @@ def share_facts_companyfacts(ciks: list[int], workers: int = 4) -> pd.DataFrame:
         return df
     df["source"] = "companyfacts"
     df["segments"] = None
+    df["val"] = pd.to_numeric(df["val"], errors="coerce").astype("float64")  # huge mis-tagged ints
     for c in ("start", "end", "filed"):
         df[c] = pd.to_datetime(df[c])
     return df
