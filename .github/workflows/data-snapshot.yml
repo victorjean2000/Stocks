@@ -1,0 +1,76 @@
+# Builds the dataset and publishes it as an ENCRYPTED snapshot on the
+# `data-snapshot` release, so new Claude Code sessions can restore it in
+# about a minute instead of rebuilding for ~25 minutes.
+#
+# The repository is public and Alpaca market data may not be redistributed,
+# so the snapshot is always encrypted (the pack step fails without a key).
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY, SEC_USER_AGENT, STOCKDATA_SNAPSHOT_KEY
+name: data-snapshot
+
+on:
+  schedule:
+    - cron: "37 23 * * 1-5"   # 23:37 UTC on weekdays, after the US close and the SIP delay
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: data-snapshot
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+      ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+      SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+      STOCKDATA_SNAPSHOT_KEY: ${{ secrets.STOCKDATA_SNAPSHOT_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Check secrets
+        run: |
+          for v in ALPACA_API_KEY_ID ALPACA_API_SECRET_KEY SEC_USER_AGENT STOCKDATA_SNAPSHOT_KEY; do
+            if [ -z "${!v}" ]; then echo "::error::repository secret $v is not set"; exit 1; fi
+          done
+
+      - name: Restore previous snapshot (if any)
+        run: |
+          if gh release download data-snapshot --pattern stockdata-snapshot.tar.enc --dir /tmp/snap; then
+            python -m stockdata snapshot restore /tmp/snap/stockdata-snapshot.tar.enc
+          else
+            echo "No previous snapshot: full build."
+          fi
+
+      - name: Update data
+        run: python -m stockdata update
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Pack encrypted snapshot
+        run: python -m stockdata snapshot pack /tmp/stockdata-snapshot.tar.enc --require-key
+
+      - name: Publish
+        run: |
+          if ! gh release view data-snapshot >/dev/null 2>&1; then
+            gh release create data-snapshot --prerelease --title "Data snapshot (encrypted)" \
+              --notes "Encrypted with STOCKDATA_SNAPSHOT_KEY; rebuilt by .github/workflows/data-snapshot.yml. See DATA.md."
+          fi
+          gh release upload data-snapshot /tmp/stockdata-snapshot.tar.enc --clobber
+
+      - name: Summary
+        run: python -m stockdata status | head -40 >> "$GITHUB_STEP_SUMMARY"

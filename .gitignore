@@ -1,0 +1,13 @@
+# Data is rebuilt or restored from a snapshot; never commit it.
+/data/
+*.parquet
+*.zip
+*.tar
+*.tar.zst
+*.tar.gz
+*.enc
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
