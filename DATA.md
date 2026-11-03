@@ -190,6 +190,8 @@ python -m pytest                    # tests (loader + point-in-time rules; real-
 Incremental price logic: each run re-downloads the last 5 sessions for every ticker. If Alpaca's
 adjusted closes for those days changed (a new dividend or split re-adjusts all history), that ticker's
 adjusted history is downloaded again; raw history is only appended. New tickers get full history.
+An incremental run does not notice when Alpaca later links extra history to an existing symbol (seen
+for CASK on 2026-11-03), so run `update --full` now and then (the snapshot workflow does it weekly).
 
 ## Persistence: new cloud sessions
 
@@ -197,10 +199,10 @@ Every cloud session starts on a fresh machine with no `data/`. Measured here (4 
 
 | step | time |
 |---|---|
-| full rebuild from nothing (`python -m stockdata update` on an empty `data/`) | FULL_REBUILD |
-| of which: prices, 10.5M daily bars x 2 passes at the free 200 req/min | ~13 min |
-| of which: SEC downloads (3 GB bulk + 51 quarterly data sets) + ADR checks, in parallel with prices | ~9 min |
-| of which: share extraction, panel, validation (after prices) | ~4 min |
+| full rebuild from nothing (SessionStart hook on an empty `data/`, measured end to end) | 20 min (1,202 s) |
+| of which: prices, 10.5M daily bars x 2 passes at the free 200 req/min | ~14 min |
+| of which: SEC downloads (3 GB bulk + 51 quarterly data sets) + 951 20-F checks, in parallel with prices | ~11 min |
+| of which: share extraction, panel, validation (after prices) | ~5 min |
 | incremental top-up, one new session, SEC not due (last SEC refresh < 20 h ago) | ~3 min (200 s measured) |
 | incremental top-up including the daily SEC refresh (re-downloads the 3 GB bulk zips) | ~9 min (563 s measured) |
 | restore an encrypted snapshot: download (~45 s at ~18 MB/s) + decrypt and unpack (8 s) | about 1 min |
@@ -221,7 +223,7 @@ Chosen approach (simplest that is fast and keeps market data private):
    SEC data is refreshed, at most once per 20 hours). Size: about 810 MB.
 
 Without the snapshot (nothing configured) sessions still work: the hook rebuilds in the background and
-data is ready after about FULL_REBUILD. With the snapshot, data is ready in about a minute.
+data is ready after about 20 minutes. With the snapshot, data is ready in about a minute.
 
 To enable the snapshot (one-time):
 - GitHub repo, Settings > Secrets and variables > Actions: add `ALPACA_API_KEY_ID`,

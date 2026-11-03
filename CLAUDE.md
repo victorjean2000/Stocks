@@ -31,7 +31,7 @@ python -m stockdata status        # sync.state should be "ready"; last_session =
 
 The SessionStart hook (`.claude/hooks/session-start.sh`) starts `python -m stockdata sync` in the
 background on every cloud session: it restores the encrypted snapshot if `STOCKDATA_SNAPSHOT_KEY` is
-set (about a minute), otherwise rebuilds from scratch (about 25 minutes), then tops up incrementally.
+set (about a minute), otherwise rebuilds from scratch (about 20 minutes), then tops up incrementally.
 If `sync.state` is `running`, wait for it (`tail -f data/logs/sync.log`); do not start a second build.
 
 Other commands: `python -m stockdata update` (incremental; `--full` re-downloads everything),
