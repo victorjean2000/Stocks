@@ -244,3 +244,17 @@ def test_fractional_small_count_is_thousands():
     assert c.loc[0, "shares_reported"] == pytest.approx(673_556_656.0)
     c = shares.choose(_fv(eso=64_562_265.5))  # large fractional count (DRIP shares) is real
     assert c.loc[0, "shares_reported"] == 64_562_265.5
+
+
+def test_units_fix_leaves_plausible_segments_alone():
+    """Tiny company recapitalised into a large one: both pieces trade normally, nothing is rescaled."""
+    d = pd.bdate_range("2023-01-02", "2025-12-31")
+    vol = np.where(d < "2024-06-01", 3_000, 2_000_000)  # tiny shell trades little, the new company a lot
+    px = pd.DataFrame({"ticker": "QXO", "date": d, "close_raw": 12.0, "volume": vol, "split_factor": 1.0})
+    filed = pd.to_datetime(["2023-05-09", "2023-11-14", "2024-05-07", "2024-08-14", "2025-05-08"])
+    vals = [5.26e6, 5.26e6, 5.32e6, 5.18e9, 5.19e9]  # ~1000x apart on purpose
+    ev = pd.DataFrame({"cik": 3, "accn": list("abcde"), "filed": filed, "as_of": filed - pd.Timedelta(days=5),
+                       "shares_reported": vals, "shares_adj": vals, "note": "", "kind": "eso"})
+    ev["effective"] = shares.effective_dates(ev["filed"], d)
+    out, fixes = shares.fix_units_errors(ev, px, pd.DataFrame({"cik": [3], "ticker": ["QXO"]}))
+    assert not fixes and out["shares_adj"].tolist() == vals

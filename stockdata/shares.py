@@ -366,9 +366,16 @@ def fix_units_errors(ev: pd.DataFrame, prices: pd.DataFrame, primary: pd.DataFra
         if not turnover:
             continue
         best = min(turnover, key=lambda L: abs(np.log10(turnover[L] / 3e-3)))
+
+        def plausible(x):
+            return 2e-5 <= x <= 0.3
+
         idx = g.index.to_numpy()
         for i, L in enumerate(level):
-            if L != best:
+            # Only a piece whose OWN turnover is implausible is rescaled, and only if that makes it
+            # plausible: a genuine jump (QXO: 5M -> 409M shares in 2024) leaves both pieces alone.
+            if L != best and L in turnover and not plausible(turnover[L]) and \
+                    plausible(turnover[L] * 10.0 ** (L - best)):
                 factor = 10.0 ** (best - L)
                 ev.loc[idx[i], ["shares_reported", "shares_adj"]] = ev.loc[idx[i], ["shares_reported", "shares_adj"]] * factor
                 note = ev.loc[idx[i], "note"]
