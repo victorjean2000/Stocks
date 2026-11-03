@@ -61,7 +61,8 @@ retried with backoff on 429/5xx/network errors.
    673,556.656 shares, Tempus 173,381), the whole series is rescaled only if turnover becomes normal and
    the company's own reported public float (USD) agrees; without float data only extreme cases (over
    300%/day) are rescaled. A genuinely small company with a hot stock has a small float and is never
-   inflated. Every fix is listed in `share_problems.csv`.
+   inflated. A fractional cover or balance-sheet count under 10M (673,556.656) is read as thousands,
+   since a point-in-time share count is a whole number. Every fix is listed in `share_problems.csv`.
 4. **Panel** (`stockdata/panel.py`). Prices joined with the latest share count that was usable on
    each date, market cap, sector and the universe flag. Before that, each ticker's history is trimmed
    to start after its last stretch of 20+ sessions without trading: Alpaca returns everything ever
