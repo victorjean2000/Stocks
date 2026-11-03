@@ -71,6 +71,39 @@ retried with backoff on 429/5xx/network errors.
    otherwise bring another company's prices. Trims are listed in `data/reports/history_trims.csv`.
 5. **Validation** (`stockdata/validate.py`) writes `data/reports/validation.md`.
 
+## Coverage (build of 2026-11-03, data to 2026-11-02)
+
+| | count |
+|---|---|
+| Alpaca us_equity assets (active) | 14,397 |
+| kept: common stocks / ADRs | 5,135 / 372 |
+| dropped (ETFs/funds, OTC, preferreds, warrants, units, notes, rights, partnerships...) | 8,887 |
+| kept with daily prices | 5,507 |
+| kept with a SEC CIK | 5,498 |
+| kept with a point-in-time share count at some date | 5,352 |
+| kept with a sector | 5,491 |
+| panel rows (ticker-days, 2016-01-04 .. 2026-11-02) | 10,280,295 |
+| split spot-checks passed | 5 / 5 |
+| market-cap sanity checks passed (+-20% of public figures) | 21 / 21 |
+
+$3bn+ universe (`in_universe`), tickers per day:
+
+| year | average | year end | distinct in year |
+|---|---|---|---|
+| 2016 | 656 | 707 | 772 |
+| 2017 | 734 | 779 | 868 |
+| 2018 | 838 | 809 | 988 |
+| 2019 | 859 | 889 | 1021 |
+| 2020 | 885 | 1008 | 1137 |
+| 2021 | 1113 | 1146 | 1362 |
+| 2022 | 1067 | 1004 | 1309 |
+| 2023 | 1047 | 1114 | 1263 |
+| 2024 | 1150 | 1218 | 1378 |
+| 2025 | 1249 | 1318 | 1507 |
+| 2026 | 1404 | 1436 | 1662 |
+
+The early years are smaller partly because delisted stocks are not included (survivorship bias).
+
 ## Point-in-time rules
 
 - A filing is usable from the **first trading session after its filing date** (`FILING_LAG_TRADING_DAYS = 1`).
@@ -170,7 +203,9 @@ Every cloud session starts on a fresh machine with no `data/`. Measured here (4 
 | of which: share extraction, panel, validation (after prices) | ~4 min |
 | incremental top-up, one new session, SEC not due (last SEC refresh < 20 h ago) | ~3 min (200 s measured) |
 | incremental top-up including the daily SEC refresh (re-downloads the 3 GB bulk zips) | ~9 min (563 s measured) |
-| restore an encrypted snapshot (download, decrypt, unpack) | RESTORE_TIME |
+| restore an encrypted snapshot: download (~45 s at ~18 MB/s) + decrypt and unpack (8 s) | about 1 min |
+| `load_panel()` everything (10.3M rows x 22 columns, 1.7 GB in memory) | 5.7 s |
+| `load_panel("2024-01-01", "2024-12-31")` / `universe_only=True` (all years) | 0.3 s / 1.2 s |
 
 Chosen approach (simplest that is fast and keeps market data private):
 
@@ -183,10 +218,10 @@ Chosen approach (simplest that is fast and keeps market data private):
    23:37 UTC and on demand). The repository is public and Alpaca market data may not be redistributed,
    so the snapshot is always encrypted (AES-256, openssl, key `STOCKDATA_SNAPSHOT_KEY`); the pack step
    refuses to run without the key. The snapshot excludes the 3 GB SEC bulk zips (re-downloaded only when
-   SEC data is refreshed, at most once per 20 hours). Size: SNAPSHOT_SIZE.
+   SEC data is refreshed, at most once per 20 hours). Size: about 810 MB.
 
 Without the snapshot (nothing configured) sessions still work: the hook rebuilds in the background and
-data is ready after about FULL_REBUILD. With the snapshot, data is ready in about RESTORE_TIME.
+data is ready after about FULL_REBUILD. With the snapshot, data is ready in about a minute.
 
 To enable the snapshot (one-time):
 - GitHub repo, Settings > Secrets and variables > Actions: add `ALPACA_API_KEY_ID`,
