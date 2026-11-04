@@ -10,8 +10,8 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from .config import (ADV_WINDOW, MAX_SHARES_STALENESS_DAYS, MIN_ADV, MIN_MARKET_CAP, MIN_PRICE,
-                     UNIVERSE_SECURITY_TYPES, paths)
+from .config import (ADV_WINDOW, MAX_MCAP, MAX_SHARES, MAX_SHARES_STALENESS_DAYS, MIN_ADV, MIN_MARKET_CAP,
+                     MIN_PRICE, UNIVERSE_SECURITY_TYPES, paths)
 
 log = logging.getLogger(__name__)
 
@@ -161,6 +161,9 @@ def build(securities: pd.DataFrame, prices: pd.DataFrame, share_events: pd.DataF
     stale = (prim["date"] - prim["filed"]).dt.days > MAX_SHARES_STALENESS_DAYS
     prim.loc[stale, ["shares_adj"]] = np.nan
     prim["mcap"] = prim["close_raw"] / prim["split_factor"] * prim["shares_adj"]
+    # Last resort: a count no company can have (units errors shares.py could not repair) is unknown.
+    impossible = (prim["shares_adj"] > MAX_SHARES) | (prim["mcap"] > MAX_MCAP)
+    prim.loc[impossible, ["shares_adj", "mcap"]] = np.nan
     comp = prim[["cik", "date", "mcap", "as_of", "filed", "kind", "origin"]].rename(
         columns={"as_of": "shares_asof", "filed": "shares_filed"})
     comp["shares_source"] = comp["kind"] + ":" + comp["origin"]

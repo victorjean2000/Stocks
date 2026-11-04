@@ -35,7 +35,7 @@ import re
 import numpy as np
 import pandas as pd
 
-from .config import FILING_LAG_TRADING_DAYS
+from .config import FILING_LAG_TRADING_DAYS, MAX_MCAP, MAX_SHARES
 
 log = logging.getLogger(__name__)
 
@@ -435,6 +435,72 @@ def rescue_units(ev: pd.DataFrame, prices: pd.DataFrame, primary: pd.DataFrame,
                                        f"public float {'agrees' if votes else 'not available'})",
                               "value": float(ev.loc[sel, "shares_reported"].iloc[-1])})
             break
+    return ev, fixes
+
+
+def final_units_check(ev: pd.DataFrame, prices: pd.DataFrame, primary: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+    """Last check on each filing against the company's own normal level, after the other units fixes.
+
+    Each filing gets the median daily turnover (dollar volume / market cap) and market cap of the
+    sessions it is used for. A filing more than 100x away from the company's typical count or
+    turnover, or with an impossible count (over MAX_SHARES or MAX_MCAP), is rescaled by 1,000 or
+    1,000,000 when that puts its count within 3x of the typical count and its turnover within 30x
+    of the typical value. With nothing normal to compare against (a new listing) only impossible values are
+    rescaled, to the factor that gives the most ordinary turnover. Seen: DraftKings 2020-21 (counts
+    alternating between 292bn and 355,900), Orion Digital 2021 (32.7bn), Avino 2026, Jersey Mike's
+    2026 (233 trillion).
+    """
+    ev = ev.copy()
+    fixes: list = []
+    prim = primary[["cik", "ticker"]].drop_duplicates("cik")
+    q = prices.merge(prim, on="ticker", how="inner")[["cik", "date", "close_raw", "volume", "split_factor"]]
+    q = q.assign(cik=q["cik"].astype("int64"), date=q["date"].astype("datetime64[ns]")).sort_values("date")
+    e = ev[["cik", "effective", "shares_adj"]].dropna()
+    e = e.assign(cik=e["cik"].astype("int64"), effective=e["effective"].astype("datetime64[ns]"), row=e.index)
+    m = pd.merge_asof(q, e.sort_values("effective"), left_on="date", right_on="effective", by="cik")
+    m = m[(m["volume"] > 0) & m["row"].notna() & (m["shares_adj"] > 0)]
+    if m.empty:
+        return ev, fixes
+    adj_px = m["close_raw"] / m["split_factor"]
+    m = m.assign(row=m["row"].astype("int64"), mcap=adj_px * m["shares_adj"],
+                 tv=m["close_raw"] * m["volume"] / (adj_px * m["shares_adj"]))
+    per = m.groupby("row").agg(cik=("cik", "first"), turn=("tv", "median"), mc=("mcap", "median"))
+    per["n"] = ev.loc[per.index, "shares_adj"].to_numpy(dtype="float64")
+    for cik, g in per.groupby("cik"):
+        normal = g[(g["turn"] >= 1e-4) & (g["turn"] <= 0.1)]
+        t_ref = float(normal["turn"].median()) if len(normal) else np.nan
+        n_ref = float(normal["n"].median()) if len(normal) else np.nan
+        for row, r in g.iterrows():
+            impossible = r["n"] > MAX_SHARES or r["mc"] > MAX_MCAP
+            off = np.isfinite(t_ref) and not (0.01 <= r["turn"] / t_ref <= 100 and 0.01 <= r["n"] / n_ref <= 100)
+            if not (impossible or off):
+                continue
+            best = None
+            for use_ref in ((True, False) if impossible else (True,)):
+                score = np.inf
+                for k in (1e-6, 1e-3, 1e3, 1e6):
+                    n2, t2, m2 = r["n"] * k, r["turn"] / k, r["mc"] * k
+                    if n2 > MAX_SHARES or m2 > MAX_MCAP or n2 < MIN_SHARES or not (2e-5 <= t2 <= 0.3):
+                        continue
+                    if use_ref:
+                        if not (np.isfinite(t_ref) and 1 / 30 <= t2 / t_ref <= 30 and 1 / 3 <= n2 / n_ref <= 3):
+                            continue
+                        s = abs(np.log(t2 / t_ref))
+                    else:
+                        s = abs(np.log(t2 / 3e-3))
+                    if s < score:
+                        best, score = k, s
+                if best is not None:
+                    break
+            if best is None:
+                continue
+            ev.loc[row, ["shares_reported", "shares_adj"]] = ev.loc[row, ["shares_reported", "shares_adj"]] * best
+            note = ev.loc[row, "note"]
+            note = note if isinstance(note, str) else ""
+            ev.loc[row, "note"] = (note + "; " if note else "") + f"units error fixed (x{best:g}, final check)"
+            fixes.append({"cik": cik, "accn": ev.loc[row, "accn"], "filed": ev.loc[row, "filed"],
+                          "issue": f"units error fixed: x{best:g} (final check: turnover {r['turn']:.3g}/day, "
+                                   f"typical {t_ref:.3g})", "value": ev.loc[row, "shares_reported"]})
     return ev, fixes
 
 

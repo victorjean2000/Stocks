@@ -156,6 +156,8 @@ def derive_share_events(s: pd.DataFrame, px: pd.DataFrame, filings: pd.DataFrame
     pf = pd.read_parquet(pf_path) if pf_path.exists() else None
     ev, more = shares.rescue_units(ev, px, prim[prim["is_primary"]], pf)
     unit_fixes += more
+    ev, more = shares.final_units_check(ev.reset_index(drop=True), px, prim[prim["is_primary"]])
+    unit_fixes += more
     ev, probs = shares.clean_series(ev)
     if unit_fixes:
         probs = pd.concat([probs, pd.DataFrame(unit_fixes)], ignore_index=True)

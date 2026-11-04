@@ -258,3 +258,27 @@ def test_units_fix_leaves_plausible_segments_alone():
     ev["effective"] = shares.effective_dates(ev["filed"], d)
     out, fixes = shares.fix_units_errors(ev, px, pd.DataFrame({"cik": [3], "ticker": ["QXO"]}))
     assert not fixes and out["shares_adj"].tolist() == vals
+
+
+def test_final_units_check_repairs_breaks_and_impossible_counts():
+    from stockdata.shares import final_units_check
+    d = pd.bdate_range("2021-01-04", periods=300)
+    px = pd.concat([pd.DataFrame({"ticker": t, "date": d, "close_raw": c, "volume": v, "split_factor": 1.0})
+                    for t, c, v in (("AAA", 50.0, 1_000_000), ("NEW", 19.72, 3_100_000), ("SPC", 20.0, 2_000_000))])
+    prim = pd.DataFrame({"cik": [1, 2, 3], "ticker": ["AAA", "NEW", "SPC"]})
+    eff = [d[0], d[60], d[120], d[180], d[240]]
+    rows = []
+    # AAA: 150M shares, one quarter 1,000x too big (impossible), one 1,000x too small
+    for e, n in zip(eff, [150e6, 150e6, 150e9 * 1.0, 151e6, 150e3]):
+        rows.append({"cik": 1, "effective": e, "shares_adj": n})
+    rows.append({"cik": 2, "effective": d[200], "shares_adj": 2.33e14})  # a new listing's only filing
+    for e, n in zip(eff[:4], [50e6, 50e6, 400e6, 400e6]):  # SPAC-style genuine 8x jump: left alone
+        rows.append({"cik": 3, "effective": e, "shares_adj": n})
+    ev = pd.DataFrame(rows)
+    ev = ev.assign(shares_reported=ev["shares_adj"], note="", accn=[f"a{i}" for i in range(len(ev))],
+                   filed=ev["effective"] - pd.Timedelta(days=1))
+    out, fixes = final_units_check(ev, px, prim)
+    assert out.loc[out["cik"] == 1, "shares_adj"].tolist() == pytest.approx([150e6, 150e6, 150e6, 151e6, 150e6])
+    assert out.loc[out["cik"] == 2, "shares_adj"].iloc[0] == pytest.approx(2.33e8)
+    assert out.loc[out["cik"] == 3, "shares_adj"].tolist() == [50e6, 50e6, 400e6, 400e6]
+    assert len(fixes) == 3 and all("final check" in n for n in out.loc[[2, 4, 5], "note"])

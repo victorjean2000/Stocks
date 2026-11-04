@@ -63,7 +63,12 @@ retried with backoff on 429/5xx/network errors.
    the company's own reported public float (USD) agrees; without float data only extreme cases (over
    300%/day) are rescaled. A genuinely small company with a hot stock has a small float and is never
    inflated. A fractional cover or balance-sheet count under 10M (673,556.656) is read as thousands,
-   since a point-in-time share count is a whole number. Every fix is listed in `share_problems.csv`.
+   since a point-in-time share count is a whole number. A last check compares every filing with the
+   company's own typical count and turnover: a filing 100x away from either, or with an impossible count
+   (over 100bn shares or a $10tn market cap), is rescaled by 1,000 or 1,000,000 when that puts it within
+   3x of the typical count (DraftKings 2020-21, whose counts alternated between 292bn and 355,900; Orion
+   Digital 2021; Jersey Mike's 2026 at 233 trillion shares). Anything still impossible is left unknown in
+   the panel. Every fix is listed in `share_problems.csv`.
 4. **Panel** (`stockdata/panel.py`). Prices joined with the latest share count that was usable on
    each date, market cap, sector and the universe flag. Before that, each ticker's history is trimmed
    to start after its last stretch of 20+ sessions without trading: Alpaca returns everything ever
@@ -268,6 +273,7 @@ See `data/reports/validation.md` and `data/reports/problems.csv` for the current
 - Multi-class companies that report only per class rely on the quarterly Financial Statement Data Sets,
   which are published after each quarter ends, so their newest filing can lag by up to about 3 months.
   Visa's classes are added unconverted (B/C shares count 1:1), slightly understating its market cap.
+- Six small ADRs (ALAR, LGHL, PPBT, RDHL, SOS, SVRE) still show impossible ADS counts and market caps.
 - ADRs: past ADS ratios are inferred from clean jumps in the ordinary share count (BABA 2019 checks out);
   ratio changes without such a jump, or 55 ADRs whose ratio could not be parsed, leave older ADR market
   caps wrong or empty. ADRs are outside the default universe.

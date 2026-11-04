@@ -38,6 +38,10 @@ FILING_LAG_TRADING_DAYS = 1
 # Shares older than this (from the last usable filing) are treated as unknown.
 MAX_SHARES_STALENESS_DAYS = 550
 
+# Counts no company can have: units errors that could not be repaired are treated as unknown.
+MAX_SHARES = 1e11  # no listed company has 100bn shares outstanding (Lloyds, about 60bn, has the most)
+MAX_MCAP = 1e13  # $10tn, about twice the largest company so far
+
 
 def data_dir() -> Path:
     """Root of all data. Override with STOCKDATA_DIR (tests do this)."""
