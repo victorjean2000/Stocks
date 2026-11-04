@@ -57,6 +57,19 @@ more, on a generic next-open engine with ETF prices from Alpaca and T-bill (BIL)
 the tuning years, 2022-26 the out-of-sample check, plus a risk-matched SPY comparison. Results:
 `backtest/STRATEGIES.md`; curves and the full table in `data/backtests/strategies/`.
 
+## Paper trading
+
+`python -m trading status` / `run --dry-run` / `run` paper-trades two strategies from `backtest/strategies.py`,
+each in its own Alpaca PAPER account (only `paper-api.alpaca.markets` is ever called):
+- `momentum` (keys `ALPACA_MOMENTUM_KEY_ID/_SECRET_KEY`, else the main `ALPACA_API_KEY_ID/_SECRET_KEY`): top 10 of the
+  500 largest by 6-1 month return, 10% each, rebalanced once after each month end (orders tagged
+  `momentum-YYYYMMDD-...`; a decision with filled orders is not traded again).
+- `qld` (keys `ALPACA_QLD_KEY_ID/_SECRET_KEY`, a second paper account): QLD while QQQ closes above its 200-day
+  average, otherwise BIL.
+A run cancels its own open orders, then trades the holdings to the target with day market orders (queued for the
+next open after the close). It refuses two strategies on one account. `.github/workflows/paper-trade.yml` runs it
+after every successful data-snapshot build; run that workflow by hand to start a new account.
+
 Rules for this repo:
 - Never print, log or commit `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `SEC_USER_AGENT` or
   `STOCKDATA_SNAPSHOT_KEY`. Never commit anything under `data/` (it is git-ignored).

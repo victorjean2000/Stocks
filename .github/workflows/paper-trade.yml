@@ -1,0 +1,68 @@
+# Paper-trades two strategies, each in its own Alpaca PAPER account (see trading/__init__.py):
+#   momentum  top 10 of the 500 largest US stocks by 6-1 month return, rebalanced after each month end
+#   qld       QLD while QQQ closes above its 200-day average, otherwise BIL (T-bills)
+#
+# Runs after each successful data-snapshot build (weekday evenings, after the close), so
+# decisions use that day's closing prices and the market orders queue for the next open.
+# Run it by hand (Actions > paper-trade > Run workflow) to start a newly added account.
+#
+# Repository secrets (Settings > Secrets and variables > Actions):
+#   ALPACA_API_KEY_ID, ALPACA_API_SECRET_KEY  paper account for momentum (also used for market data)
+#   ALPACA_QLD_KEY_ID, ALPACA_QLD_SECRET_KEY  a second paper account for qld (skipped until set)
+#   STOCKDATA_SNAPSHOT_KEY                     to decrypt the data snapshot
+# The log shows weights and orders as percentages only, never account values or keys.
+name: paper-trade
+
+on:
+  workflow_run:
+    workflows: [data-snapshot]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Plan only, place no orders"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paper-trade
+  cancel-in-progress: false
+
+jobs:
+  trade:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ALPACA_API_KEY_ID: ${{ secrets.ALPACA_API_KEY_ID }}
+      ALPACA_API_SECRET_KEY: ${{ secrets.ALPACA_API_SECRET_KEY }}
+      ALPACA_QLD_KEY_ID: ${{ secrets.ALPACA_QLD_KEY_ID }}
+      ALPACA_QLD_SECRET_KEY: ${{ secrets.ALPACA_QLD_SECRET_KEY }}
+      STOCKDATA_SNAPSHOT_KEY: ${{ secrets.STOCKDATA_SNAPSHOT_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: python -m pip install -r requirements.txt
+
+      - name: Restore the latest data snapshot
+        run: |
+          gh release download data-snapshot --pattern stockdata-snapshot.tar.enc --dir /tmp/snap
+          python -m stockdata snapshot restore /tmp/snap/stockdata-snapshot.tar.enc
+          python -m stockdata status | grep -m1 '"last_session"'
+
+      - name: Trade
+        run: |
+          set -o pipefail
+          flag=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then flag="--dry-run"; fi
+          python -m trading run $flag | tee /tmp/trade.json
+          { echo '```json'; cat /tmp/trade.json; echo '```'; } >> "$GITHUB_STEP_SUMMARY"

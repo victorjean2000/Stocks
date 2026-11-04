@@ -110,7 +110,7 @@ Daily correlation between large-cap momentum (top 20) and the 2x Nasdaq trend st
 - QLD when QQQ > 150-day avg: cash (T-bills)
 - TQQQ when QQQ > 200-day avg: TQQQ
 - TQQQ when QQQ > 150-day avg: cash (T-bills)
-- Momentum 6-1 month, top 10 of largest 500: CRWD, DELL, HPE, ILMN, MRNA, OKTA, PANW, RBRK, SNOW, TEAM
+- Momentum 6-1 month, top 10 of largest 500: CRWD, DELL, FTNT, HPE, MRNA, OKTA, PANW, RBRK, SNOW, TEAM
 - Largest 10 companies, equal weight: AAPL, AMZN, AVGO, GOOGL, LLY, META, MSFT, NVDA, SPCX, TSLA
 - Largest 5 companies, equal weight: AAPL, AMZN, GOOGL, MSFT, NVDA
 

@@ -174,9 +174,12 @@ def run(book: Book, targets: dict[int, dict[int, float]], cash_r: np.ndarray, i0
 
 def key_days(dates: pd.DatetimeIndex, i0: int, freq: str, offset: int = 0) -> list[int]:
     """Last session of each month ("M") or week ("W"), moved `offset` sessions later,
-    from the first decision day on."""
-    per = dates.to_period("M" if freq == "M" else "W-FRI")
-    last = np.flatnonzero(np.r_[per[1:] != per[:-1], True]) + offset
+    from the first decision day on. The final date counts only if the next weekday is in a
+    new period (the data may stop mid-month)."""
+    f = "M" if freq == "M" else "W-FRI"
+    per = dates.to_period(f)
+    final = (dates[-1] + pd.offsets.BDay(1)).to_period(f) != per[-1]
+    last = np.flatnonzero(np.r_[per[1:] != per[:-1], final]) + offset
     return sorted({i0 - 1} | {int(i) for i in last if i0 - 1 <= i < len(dates)})
 
 
@@ -193,23 +196,26 @@ def pick(lab: Lab, score: np.ndarray, ok: np.ndarray, n: int, freq: str = "M", o
     codes = pd.factorize(lab.m.sector)[0]
     out = {}
     for i in days:
-        if on is not None and not on[i]:
-            out[i] = {}
-            continue
-        idx = np.flatnonzero(ok[i] & np.isfinite(score[i]))
-        order = idx[np.argsort(-score[i, idx], kind="stable")]
-        if sector_cap:
-            picks, cnt = [], {}
-            for j in order:
-                if cnt.get(codes[j], 0) < sector_cap:
-                    picks.append(j)
-                    cnt[codes[j]] = cnt.get(codes[j], 0) + 1
-                if len(picks) == n:
-                    break
-        else:
-            picks = order[:n]
-        out[i] = {int(j): 1.0 / n for j in picks}
+        out[i] = {} if on is not None and not on[i] else top_n(score[i], ok[i], n, codes, sector_cap)
     return out
+
+
+def top_n(score: np.ndarray, ok: np.ndarray, n: int, codes: np.ndarray | None = None,
+          sector_cap: int | None = None) -> dict[int, float]:
+    """One day's equal-weight top-n by score among ok stocks (ties keep column order)."""
+    idx = np.flatnonzero(ok & np.isfinite(score))
+    order = idx[np.argsort(-score[idx], kind="stable")]
+    if sector_cap:
+        picks, cnt = [], {}
+        for j in order:
+            if cnt.get(codes[j], 0) < sector_cap:
+                picks.append(j)
+                cnt[codes[j]] = cnt.get(codes[j], 0) + 1
+            if len(picks) == n:
+                break
+    else:
+        picks = order[:n]
+    return {int(j): 1.0 / n for j in picks}
 
 
 def etf_trend(lab: Lab, signal: str, hold: str, n: int = 200, confirm: int = 1) -> dict:
@@ -321,12 +327,18 @@ def momentum_name(score: str, n: int, size: int | None, filt: bool = False, cap:
             (", SPY filter" if filt else ""))
 
 
+def momentum_pool(lab: Lab, size: int | None) -> np.ndarray:
+    """Stocks a momentum strategy may hold each day: the universe, or its `size` largest companies."""
+    x = lab.x
+    return x["uni"] if size is None else x["uni"] & (x["mcap_rank"] <= size)
+
+
 def momentum(lab: Lab, score: str, n: int, size: int | None, filt: bool = False, cap: int | None = None,
              offset: int = 0) -> dict:
     """Each month, the n stocks with the best momentum score, equal weight."""
     x = lab.x
-    ok = x["uni"] if size is None else x["uni"] & (x["mcap_rank"] <= size)
-    return pick(lab, x[score], ok, n, "M", x["spy_on"] if filt else None, sector_cap=cap, offset=offset)
+    return pick(lab, x[score], momentum_pool(lab, size), n, "M", x["spy_on"] if filt else None, sector_cap=cap,
+                offset=offset)
 
 
 def strategies(lab: Lab) -> list[Strat]:

@@ -54,3 +54,11 @@ def test_blend_rebalances_monthly():
     flat = pd.Series(1.0, index=idx)
     mix = blend([up, flat], [0.5, 0.5], idx, cost_bps=0.0)
     assert 1.0 < mix.iloc[-1] < up.iloc[-1] and mix.iloc[0] == 1.0
+
+
+def test_key_days_final_date_only_if_month_really_ends():
+    mid = pd.bdate_range("2026-10-01", "2026-11-03")  # data stops mid-month
+    i0 = 5
+    assert str(mid[key_days(mid, i0, "M")[-1]].date()) == "2026-10-30"
+    end = pd.bdate_range("2026-10-01", "2026-10-30")  # data stops on the month's last session
+    assert str(end[key_days(end, i0, "M")[-1]].date()) == "2026-10-30"
