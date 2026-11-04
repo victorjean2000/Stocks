@@ -13,7 +13,8 @@ import pandas as pd
 from .config import paths
 from .panel import load_panel
 
-__all__ = ["load_panel", "load_securities", "load_prices", "load_share_events", "data_status"]
+__all__ = ["load_panel", "load_securities", "load_prices", "load_share_events", "load_earnings",
+           "data_status"]
 
 
 def load_securities() -> pd.DataFrame:
@@ -30,6 +31,13 @@ def load_prices(tickers=None) -> pd.DataFrame:
 def load_share_events() -> pd.DataFrame:
     """Point-in-time share counts: one row per filing used (cik, filed, effective, shares_adj...)."""
     return pd.read_parquet(paths().sec / "share_events.parquet")
+
+
+def load_earnings(tickers=None) -> pd.DataFrame:
+    """Earnings releases from SEC 8-K Item 2.02: ticker, accepted (UTC), timing, session (first
+    session that can react). US filers only: companies reporting on 6-K have no rows."""
+    from .earnings import load
+    return load(tickers)
 
 
 def data_status() -> dict:

@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
-from . import adr, alpaca, panel, prices, sec, sectors, shares, successors, universe, validate
+from . import adr, alpaca, earnings, panel, prices, sec, sectors, shares, successors, universe, validate
 from .config import PRICE_START, paths
 
 log = logging.getLogger(__name__)
@@ -183,7 +183,9 @@ def update(full: bool = False, sec_refresh: str = "auto", skip_prices: bool = Fa
     p = paths().ensure()
     st = _state()
     tm = Timer()
-    have_local = (p.universe / "securities.parquet").exists() and (p.sec / "share_filings.parquet").exists()
+    have_local = all((d / f).exists() for d, f in ((p.universe, "securities.parquet"),
+                                                   (p.sec, "share_filings.parquet"),
+                                                   (p.sec, "earnings_events.parquet")))
     do_sec = full or not have_local or sec_refresh == "always" or (sec_refresh == "auto" and _sec_due(st))
     alp_sess = alpaca.session()
     sec_sess = sec.session() if do_sec else None
@@ -216,6 +218,8 @@ def update(full: bool = False, sec_refresh: str = "auto", skip_prices: bool = Fa
     if do_sec:
         filings = extract_share_filings(s, fsds_raw, px)
         tm.lap("share_filings")
+        earnings.build(s, px["date"].unique())  # after successor links are refreshed
+        tm.lap("earnings")
     else:
         filings = pd.read_parquet(p.sec / "share_filings.parquet")
 
@@ -250,6 +254,8 @@ def rebuild_derived(rechoose: bool = True) -> dict:
         filings[filings["note"] != ""].to_csv(p.reports / "cover_values_rejected.csv", index=False)
     else:
         filings = pd.read_parquet(p.sec / "share_filings.parquet")
+    if (p.raw_sec / "submissions.zip").exists():
+        earnings.build(s, px["date"].unique())
     ev, prim = derive_share_events(s, px, filings)
     pnl = panel.build(s, px, ev, prim)
     return validate.run(s, px, ev, pnl)

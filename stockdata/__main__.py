@@ -1,4 +1,4 @@
-"""CLI: python -m stockdata {update,status,rebuild,validate,snapshot,sync}."""
+"""CLI: python -m stockdata {update,status,rebuild,earnings,validate,snapshot,sync}."""
 from __future__ import annotations
 
 import argparse
@@ -29,6 +29,7 @@ def main(argv=None) -> int:
     sub.add_parser("status", help="show what data is present and how fresh it is")
     sub.add_parser("rebuild", help="rebuild shares/panel/reports from local files (no downloads)")
     sub.add_parser("validate", help="re-run validation on the current panel")
+    sub.add_parser("earnings", help="rebuild earnings dates (8-K Item 2.02) from local submissions.zip")
     sn = sub.add_parser("snapshot", help="pack or restore a data snapshot")
     sn.add_argument("action", choices=["pack", "restore"])
     sn.add_argument("path", nargs="?", help="archive path (pack: output, restore: input file or URL)")
@@ -49,6 +50,10 @@ def main(argv=None) -> int:
     elif a.cmd == "rebuild":
         from .pipeline import rebuild_derived
         rebuild_derived()
+    elif a.cmd == "earnings":
+        from . import earnings, prices, universe
+        ev = earnings.build(universe.load(), prices.load_store()["date"].unique())
+        print(f"{len(ev)} releases for {ev['ticker'].nunique()} tickers -> {paths().sec / 'earnings_events.parquet'}")
     elif a.cmd == "validate":
         import pandas as pd
         from . import prices, universe, validate

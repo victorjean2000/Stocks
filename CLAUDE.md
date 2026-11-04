@@ -34,15 +34,22 @@ background on every cloud session: it restores the encrypted snapshot if `STOCKD
 set (about a minute), otherwise rebuilds from scratch (about 20 minutes), then tops up incrementally.
 If `sync.state` is `running`, wait for it (`tail -f data/logs/sync.log`); do not start a second build.
 
+Earnings release dates (SEC 8-K Item 2.02, US filers only): `from stockdata import load_earnings`;
+`session` is the first trading session that can react to each release.
+
 Other commands: `python -m stockdata update` (incremental; `--full` re-downloads everything),
-`python -m stockdata rebuild` (recompute shares/panel from local files), `python -m pytest`.
+`python -m stockdata rebuild` (recompute shares/panel from local files), `python -m stockdata earnings`
+(earnings dates from the local submissions.zip), `python -m pytest`.
 
 ## Backtests
 
 `python -m backtest.momentum_trend` runs the momentum + trend strategy (golden cross, 3-day SuperTrend(10,3)
 entry/exit, top 12 by composite momentum, max 4 per sector, next-open fills, 10 bps per side) plus variants
-and SPY / equal-weight-universe benchmarks in about 20 s. Results: `backtest/RESULTS.md`; equity curves and
-trades in `data/backtests/momentum_trend/`. Rules are documented at the top of `backtest/momentum_trend.py`.
+(SPY 200-day market filter, skip the most volatile 20%, volatility-adjusted ranking, ±5-session earnings
+blackout, cost and rule sensitivities) and SPY / equal-weight-universe benchmarks in about 30 s. Results:
+`backtest/RESULTS.md`; equity curves, trades (with exit reason) and month-end holdings for every variant in
+`data/backtests/momentum_trend/`. Rules are documented at the top of `backtest/momentum_trend.py`; new
+variants are `Params(...)` entries in `MAIN` / `SENSITIVITIES`.
 
 Rules for this repo:
 - Never print, log or commit `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `SEC_USER_AGENT` or

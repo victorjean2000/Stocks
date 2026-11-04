@@ -19,6 +19,7 @@ df = load_panel("2016-01-01", "2026-12-31", universe_only=True)
 | Share counts | `companyfacts.zip` (EDGAR bulk, nightly) | company totals (facts without a class breakdown) |
 | Share counts by class | Financial Statement Data Sets `YYYYqN.zip` | only to total up multi-class filers (Visa, Berkshire, Meta...) |
 | ADS ratio | latest 20-F text (EDGAR archive) | ordinary shares per ADS, cached per filing |
+| Earnings release dates | `submissions.zip`: 8-K filings with Item 2.02 and their acceptance time | US filers only (6-K filers have none) |
 
 Credentials come from env vars `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY` (headers
 `APCA-API-KEY-ID` / `APCA-API-SECRET-KEY`) and `SEC_USER_AGENT`. They are never logged.
@@ -69,7 +70,16 @@ retried with backoff on 429/5xx/network errors.
    traded under a symbol string, so a reused ticker (today's POM vs Pepco Holdings in 2016) or a
    successor (Dow Inc. vs Dow Chemical, carried forward at zero volume from 2017-09 to 2019-04) would
    otherwise bring another company's prices. Trims are listed in `data/reports/history_trims.csv`.
-5. **Validation** (`stockdata/validate.py`) writes `data/reports/validation.md`.
+5. **Earnings dates** (`stockdata/earnings.py`). Every 8-K that includes Item 2.02 ("Results of
+   Operations and Financial Condition"), read from `submissions.zip` including the older
+   `CIK...-submissions-00N.json` files, for each kept security's CIK plus its predecessor CIKs
+   (`successor_links.csv`, used before the new CIK's first release). EDGAR's `acceptanceDateTime` is
+   UTC (Apple's 8-Ks read 20:30Z in summer and 21:30Z in winter: 16:30 New York both times). A release
+   accepted before 16:00 New York time on a trading day reacts that session, anything later the next
+   session. Check: on that session universe stocks move 4.3x their median daily move (1.4x the day
+   before, 1.8x the day after). 8-K/A amendments are ignored. Built during each SEC refresh, or from
+   the local `submissions.zip` with `python -m stockdata earnings`.
+6. **Validation** (`stockdata/validate.py`) writes `data/reports/validation.md`.
 
 ## Coverage (build of 2026-11-03, data to 2026-11-02)
 
@@ -177,12 +187,26 @@ companies) map to Financials.
 Other tables: `load_securities()` (security master incl. dropped assets), `load_prices()` (price store),
 `load_share_events()` (one row per filing used, with `filed`, `effective`, `shares_reported`, `shares_adj`).
 
+### `load_earnings()` (`data/sec/earnings_events.parquet`)
+
+One row per ticker and earnings release (8-K Item 2.02) since mid-2015.
+
+| column | meaning |
+|---|---|
+| `ticker`, `cik` | security and its current CIK (both share classes of a company get the same rows) |
+| `filer_cik` | CIK that filed the 8-K (a predecessor CIK for releases before a reorganisation) |
+| `accession`, `filed` | EDGAR accession number and filing date |
+| `accepted` | EDGAR acceptance time, UTC |
+| `timing` | `before_open`, `during_session`, `after_close` or `non_trading_day` (New York time) |
+| `session` | first session whose close comes after the release: the first one that can react |
+
 ## Refreshing
 
 ```bash
 python -m stockdata update          # incremental: new sessions, re-adjusted tickers, SEC if older than 20h
 python -m stockdata update --full   # re-download all prices
 python -m stockdata rebuild         # recompute shares/panel/reports from local files
+python -m stockdata earnings        # rebuild earnings dates from the local submissions.zip
 python -m stockdata status          # freshness, timings, background sync state
 python -m pytest                    # tests (loader + point-in-time rules; real-data checks if built)
 ```
@@ -261,6 +285,10 @@ See `data/reports/validation.md` and `data/reports/problems.csv` for the current
   Listed in `data/reports/price_jumps.csv`.
 - Alpaca's multi-symbol paging once skipped a symbol entirely (DOW); symbols that come back empty from a
   batch are re-requested one by one.
+- Earnings dates exist only for companies that file 8-Ks. Foreign private issuers (ASML, CHKP, CNI,
+  STM, RACE...) announce results on 6-K, which has no item codes: about 6% of universe stock-days have
+  no release within 70 sessions. A few companies also furnish Item 2.02 for preliminary figures or
+  investor days, which then count as extra releases.
 - Shares come from XBRL filings, so a company's first value appears with its first 10-Q/10-K/20-F after
   listing; recent IPOs have no market cap until then.
 - Business development companies (ARCC, BXSL, OBDC, FSK, MAIN...) only started tagging XBRL in 2022, so

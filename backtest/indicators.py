@@ -67,3 +67,36 @@ def momentum_features(close: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "r12_1": close.shift(21) / close.shift(252) - 1,
         "vol126": close.pct_change(fill_method=None).rolling(126, min_periods=100).std() * np.sqrt(252),
     }
+
+
+def regime(close: pd.Series, n: int = 200, days: int = 3) -> pd.Series:
+    """Market filter state, True = risk on.
+
+    Switches off after `days` closes in a row below the n-day average and back on after
+    `days` closes in a row above it; in between it keeps its last state (on during warm-up).
+    """
+    avg = close.rolling(n, min_periods=n).mean()
+    side = pd.Series(np.where(close > avg, 1.0, np.where(close < avg, 0.0, np.nan)), index=close.index)
+    side = side.where(avg.notna() & close.notna()).to_frame()
+    off = confirmed(side, 0.0, days).iloc[:, 0].to_numpy()
+    on = confirmed(side, 1.0, days).iloc[:, 0].to_numpy()
+    state = pd.Series(np.where(off, 0.0, np.where(on, 1.0, np.nan)), index=close.index)
+    return state.ffill().fillna(1.0).astype(bool)
+
+
+def event_window(events: pd.DataFrame, index: pd.DatetimeIndex, columns, days: int) -> pd.DataFrame:
+    """True on each event's session and on the `days` sessions before and after it.
+
+    events: columns `ticker` and `session`; sessions not in `index` are ignored.
+    """
+    cols = pd.Index(columns)
+    r = index.get_indexer(pd.DatetimeIndex(events["session"]).as_unit(index.unit))
+    c = cols.get_indexer(events["ticker"])
+    keep = (r >= 0) & (c >= 0)
+    r, c = r[keep], c[keep]
+    out = np.zeros((len(index), len(cols)), dtype=bool)
+    for k in range(-days, days + 1):
+        rk = r + k
+        ok = (rk >= 0) & (rk < len(index))
+        out[rk[ok], c[ok]] = True
+    return pd.DataFrame(out, index=index, columns=cols)
