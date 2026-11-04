@@ -35,6 +35,10 @@ STOCK_COST, ETF_COST = 10.0, 5.0
 ETFS = ["SPY", "QQQ", "SSO", "UPRO", "QLD", "TQQQ", "BIL", "TLT", "IEF", "GLD", "EFA", "IWM", "RSP", "MTUM",
         "XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"]
 SECTOR_ETFS = ["XLK", "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"]
+# Yearly fees used to simulate LQQ3 (WisdomTree NASDAQ 100 3x Daily Leveraged, London-listed, not on
+# Alpaca) from QQQ. LQQ3's 0.75% is not verified from WisdomTree's documents: check the KID.
+LQQ3_FEE, TQQQ_FEE, QQQ_FEE = 0.0075, 0.0084, 0.0020
+LQQ3, LQQ3_UPPER = "LQQ3 (sim)", "LQQ3 (sim, upper bound)"
 
 
 # ------------------------------------------------------------------ data
@@ -83,6 +87,41 @@ class Lab:
     x: dict = field(default_factory=dict)  # signal arrays, computed once
 
 
+def leveraged(close: pd.Series, open_: pd.Series, cash_r: pd.Series, lev: float,
+              cost: float) -> tuple[pd.Series, pd.Series]:
+    """Open and close of a fund that resets to `lev` x the daily return of `close` at each close,
+    borrowing (lev - 1) at the T-bill rate and paying `cost` a year on top (fees, funding spread)."""
+    r = close.pct_change().fillna(0.0)
+    c = 100 * (1 + lev * r - (lev - 1) * cash_r - cost / 252).cumprod()
+    o = c.shift(1) * (1 + lev * (open_ / close.shift(1) - 1))  # overnight: lev x the index's gap
+    o.iloc[0] = c.iloc[0]
+    return o, c
+
+
+def drag_of(real: pd.Series, close: pd.Series, open_: pd.Series, cash_r: pd.Series, lev: float) -> float:
+    """The yearly cost at which leveraged(close) grows exactly like the real fund (bisection)."""
+    years = (real.index[-1] - real.index[0]).days / 365.25
+    target = (real.iloc[-1] / real.iloc[0]) ** (1 / years)
+    lo, hi = -0.05, 0.10
+    for _ in range(50):
+        mid = (lo + hi) / 2
+        c = leveraged(close, open_, cash_r, lev, mid)[1]
+        lo, hi = (mid, hi) if (c.iloc[-1] / c.iloc[0]) ** (1 / years) > target else (lo, mid)
+    return (lo + hi) / 2
+
+
+def add_lqq3(eo: pd.DataFrame, ec: pd.DataFrame, cash: pd.Series) -> float:
+    """Simulated LQQ3 columns from QQQ: one with TQQQ's measured all-in cost (adjusted for the lower
+    fee), one with index math only (dividends kept, borrowing at the T-bill rate) as an upper bound.
+    Returns TQQQ's measured yearly drag."""
+    q = ec["QQQ"].notna() & ec["TQQQ"].notna()
+    qc, qo = ec["QQQ"].ffill(), eo["QQQ"].fillna(ec["QQQ"].ffill())
+    drag = drag_of(ec.loc[q, "TQQQ"], qc[q], qo[q], cash[q], 3)
+    for name, cost in ((LQQ3, drag - (TQQQ_FEE - LQQ3_FEE)), (LQQ3_UPPER, LQQ3_FEE - 3 * QQQ_FEE)):
+        eo[name], ec[name] = leveraged(qc, qo, cash, 3, cost)
+    return drag
+
+
 def build_lab() -> Lab:
     m = load_market()
     dates = m.close.index
@@ -90,6 +129,7 @@ def build_lab() -> Lab:
     eo = bars.pivot(index="date", columns="ticker", values="o").reindex(dates)
     ec = bars.pivot(index="date", columns="ticker", values="c").reindex(dates)
     cash_r = ec["BIL"].ffill().pct_change().fillna(0.0).to_numpy()
+    tqqq_drag = add_lqq3(eo, ec, pd.Series(cash_r, index=dates))
     i0 = int(dates.searchsorted(pd.Timestamp(START)))
     lab = Lab(m, dates, Book.build(m.open, m.close, STOCK_COST), Book.build(eo, ec, ETF_COST), ec, cash_r, i0)
     extras = load_extras(m)
@@ -104,7 +144,7 @@ def build_lab() -> Lab:
         "mcap_rank": extras["mcap"].where(m.universe).rank(axis=1, ascending=False).to_numpy(),
         "issuance": (extras["shares_adj"] / extras["shares_adj"].shift(252) - 1).to_numpy(),
         "spy_on": regime(ec["SPY"].ffill(), 200, 1).to_numpy(),
-        "spy_on3": regime(ec["SPY"].ffill(), 200, 3).to_numpy(),
+        "spy_on3": regime(ec["SPY"].ffill(), 200, 3).to_numpy(), "tqqq_drag": tqqq_drag,
     })
     return lab
 
@@ -370,6 +410,16 @@ def strategies(lab: Lab) -> list[Strat]:
                         f"Index trend {lev}x ({sig})", "etfs", etf_trend(lab, sig, h, n, conf),
                         "standard" if (n, conf) == (200, 1) else "grid")
 
+    # LQQ3 (London-listed 3x Nasdaq-100), simulated from QQQ: Alpaca has no London prices
+    for n in (100, 150, 200, 250):
+        for conf in (1, 3):
+            add(f"{LQQ3} when QQQ > {n}-day avg" + ("" if conf == 1 else f", {conf}-day confirm"),
+                "Index trend 3x (QQQ), LQQ3", "etfs", etf_trend(lab, "QQQ", LQQ3, n, conf),
+                "standard" if (n, conf) == (200, 1) else "grid")
+    add(f"{LQQ3_UPPER} when QQQ > 200-day avg", "Index trend 3x (QQQ), LQQ3", "etfs",
+        etf_trend(lab, "QQQ", LQQ3_UPPER, 200, 1))
+    add(f"{LQQ3} buy and hold", "Leveraged buy and hold", "etfs", etf_hold(lab, {LQQ3: 1.0}))
+
     # Stock momentum (Jegadeesh and Titman 1993), monthly, equal weight
     for score in ("r12_1", "r6_1", "composite"):
         for size in (None, 500, 200, 100):
@@ -603,6 +653,17 @@ def report(lab: Lab, S: list[Strat], tbl: pd.DataFrame, blends: pd.DataFrame, sp
         f"{surv.iloc[0]['CAGR']:.1%} a year against {surv.iloc[1]['CAGR']:.1%} for RSP, the real equal-weight "
         f"S&P 500 fund ({gap['2017-21']:+.1%} in 2017-21, {gap['2022-26']:+.1%} in 2022-26). Treat stock results as "
         "flattered by at least that much, more for concentrated portfolios. ETF results have no such bias.", "",
+        "## LQQ3 instead of QLD (simulated)", "",
+        "LQQ3 (WisdomTree NASDAQ 100 3x Daily Leveraged) trades in London, and Alpaca has no London prices, so it "
+        "is simulated from QQQ: 3x the daily return, (3 - 1) x the T-bill rate on the borrowed part, and a yearly "
+        f"cost. '{LQQ3}' uses the all-in cost measured on TQQQ, the US 3x fund ({lab.x['tqqq_drag']:.2%} a year "
+        f"beyond T-bill borrowing), less the fee difference ({TQQQ_FEE:.2%} vs an assumed {LQQ3_FEE:.2%} for LQQ3); "
+        f"'{LQQ3_UPPER}' uses index math only (dividends kept, borrowing at the T-bill rate). Real LQQ3 should "
+        "land between the two, plus currency moves (it is unhedged; a sterling S&P 500 fund moves the same way) "
+        "and London trading hours (the signal comes at the US close, trades fill in the next London session).", "",
+        md(fmt(tbl.loc[[n for n in ("QLD when QQQ > 200-day avg", "TQQQ when QQQ > 200-day avg",
+                                    f"{LQQ3} when QQQ > 200-day avg", f"{LQQ3_UPPER} when QQQ > 200-day avg",
+                                    f"{LQQ3} buy and hold", BENCH) if n in tbl.index], HEAD]), "Strategy"), "",
         "## Combinations (50/50, rebalanced monthly)", "",
         md(fmt(blends[[c for c in HEAD if c in blends.columns]]), "Mix"), "",
         f"Daily correlation between large-cap momentum (top 20) and the 2x Nasdaq trend strategy: {corr:.2f}.", "",

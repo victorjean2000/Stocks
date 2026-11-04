@@ -62,3 +62,19 @@ def test_key_days_final_date_only_if_month_really_ends():
     assert str(mid[key_days(mid, i0, "M")[-1]].date()) == "2026-10-30"
     end = pd.bdate_range("2026-10-01", "2026-10-30")  # data stops on the month's last session
     assert str(end[key_days(end, i0, "M")[-1]].date()) == "2026-10-30"
+
+
+def test_leveraged_fund_resets_daily_and_calibration_recovers_the_cost():
+    from backtest.strategies import drag_of, leveraged
+    idx = pd.bdate_range("2024-01-01", periods=300)
+    rng = np.random.default_rng(3)
+    close = pd.Series(100 * np.cumprod(1 + rng.normal(0.0005, 0.012, len(idx))), index=idx)
+    open_ = close.shift(1) * (1 + rng.normal(0, 0.003, len(idx)))
+    open_.iloc[0] = close.iloc[0]
+    cash = pd.Series(0.0001, index=idx)
+    o, c = leveraged(close, open_, cash, 3, 0.0)
+    r, rc = close.pct_change().iloc[1:], c.pct_change().iloc[1:]
+    assert np.allclose(rc, 3 * r - 2 * 0.0001)  # exactly 3x the day, less borrowing on the extra 2x
+    assert np.allclose((o / c.shift(1)).iloc[1:], 1 + 3 * (open_ / close.shift(1) - 1).iloc[1:])
+    real = leveraged(close, open_, cash, 3, 0.021)[1]
+    assert drag_of(real, close, open_, cash, 3) == pytest.approx(0.021, abs=1e-4)
