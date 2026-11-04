@@ -37,6 +37,13 @@ If `sync.state` is `running`, wait for it (`tail -f data/logs/sync.log`); do not
 Other commands: `python -m stockdata update` (incremental; `--full` re-downloads everything),
 `python -m stockdata rebuild` (recompute shares/panel from local files), `python -m pytest`.
 
+## Backtests
+
+`python -m backtest.momentum_trend` runs the momentum + trend strategy (golden cross, 3-day SuperTrend(10,3)
+entry/exit, top 12 by composite momentum, max 4 per sector, next-open fills, 10 bps per side) plus variants
+and SPY / equal-weight-universe benchmarks in about 20 s. Results: `backtest/RESULTS.md`; equity curves and
+trades in `data/backtests/momentum_trend/`. Rules are documented at the top of `backtest/momentum_trend.py`.
+
 Rules for this repo:
 - Never print, log or commit `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `SEC_USER_AGENT` or
   `STOCKDATA_SNAPSHOT_KEY`. Never commit anything under `data/` (it is git-ignored).
