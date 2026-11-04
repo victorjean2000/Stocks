@@ -205,7 +205,8 @@ Every cloud session starts on a fresh machine with no `data/`. Measured here (4 
 | of which: share extraction, panel, validation (after prices) | ~5 min |
 | incremental top-up, one new session, SEC not due (last SEC refresh < 20 h ago) | ~3 min (200 s measured) |
 | incremental top-up including the daily SEC refresh (re-downloads the 3 GB bulk zips) | ~9 min (563 s measured) |
-| restore an encrypted snapshot: download (~45 s at ~18 MB/s) + decrypt and unpack (8 s) | about 1 min |
+| restore the published snapshot (852 MB) in an empty session: download, decrypt, unpack | 45 s (measured 2026-11-04) |
+| build + publish the snapshot on GitHub Actions (full build from nothing) | 18.5 min (measured) |
 | `load_panel()` everything (10.3M rows x 22 columns, 1.7 GB in memory) | 5.7 s |
 | `load_panel("2024-01-01", "2024-12-31")` / `universe_only=True` (all years) | 0.3 s / 1.2 s |
 
