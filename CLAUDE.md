@@ -51,6 +51,12 @@ blackout, cost and rule sensitivities) and SPY / equal-weight-universe benchmark
 `data/backtests/momentum_trend/`. Rules are documented at the top of `backtest/momentum_trend.py`; new
 variants are `Params(...)` entries in `MAIN` / `SENSITIVITIES`.
 
+`python -m backtest.strategies` (about 40 s) runs the strategy search: about 200 settings of index trend
+(plain and leveraged ETFs), stock momentum, earnings drift, buybacks, reversal, mega-caps, sector rotation and
+more, on a generic next-open engine with ETF prices from Alpaca and T-bill (BIL) interest on cash. 2017-21 are
+the tuning years, 2022-26 the out-of-sample check, plus a risk-matched SPY comparison. Results:
+`backtest/STRATEGIES.md`; curves and the full table in `data/backtests/strategies/`.
+
 Rules for this repo:
 - Never print, log or commit `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `SEC_USER_AGENT` or
   `STOCKDATA_SNAPSHOT_KEY`. Never commit anything under `data/` (it is git-ignored).
