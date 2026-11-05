@@ -57,6 +57,10 @@ more, on a generic next-open engine with ETF prices from Alpaca and T-bill (BIL)
 the tuning years, 2022-26 the out-of-sample check, plus a risk-matched SPY comparison. Results:
 `backtest/STRATEGIES.md`; curves and the full table in `data/backtests/strategies/`.
 
+`python -m backtest.lqq3` backtests the trend rule on real LQQ3 prices in pounds (the user's ISA version: LQQ3 while
+QQQ closes above its 200-day average, else sterling cash, trading at the next London open). Results:
+`backtest/LQQ3.md`.
+
 ## Paper trading
 
 `python -m trading status` / `run --dry-run` / `run` paper-trades two strategies from `backtest/strategies.py`,
@@ -64,16 +68,20 @@ each in its own Alpaca PAPER account (only `paper-api.alpaca.markets` is ever ca
 - `momentum` (keys `ALPACA_MOMENTUM_KEY_ID/_SECRET_KEY`, else the main `ALPACA_API_KEY_ID/_SECRET_KEY`): top 10 of the
   500 largest by 6-1 month return, 10% each, rebalanced once after each month end (orders tagged
   `momentum-YYYYMMDD-...`; a decision with filled orders is not traded again).
-- `qld` (keys `ALPACA_QLD_KEY_ID/_SECRET_KEY`, a second paper account): QLD while QQQ closes above its 200-day
-  average, otherwise BIL.
+- `lqq3` (keys `ALPACA_LQQ3_KEY_ID/_SECRET_KEY`, a second paper account): TQQQ, the US stand-in for London-listed
+  LQQ3, while QQQ closes above its 200-day average, otherwise BIL.
 A run cancels its own open orders, then trades the holdings to the target with day market orders (queued for the
-next open after the close). It refuses two strategies on one account. `.github/workflows/paper-trade.yml` runs it
-after every successful data-snapshot build; run that workflow by hand to start a new account.
+next open after the close). For lqq3 it also reports what real LQQ3 did in pounds on the same signals since
+2026-11-05 (`backtest.lqq3.shadow`) and the account's own return in dollars and pounds. It refuses two strategies
+on one account. `.github/workflows/paper-trade.yml` runs it after every successful data-snapshot build; run that
+workflow by hand to start a new account.
 
 Rules for this repo:
 - Never print, log or commit `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `SEC_USER_AGENT` or
   `STOCKDATA_SNAPSHOT_KEY`. Never commit anything under `data/` (it is git-ignored).
-- Data sources are Alpaca (data/paper-api) and SEC EDGAR only; ask before adding another source.
+- Data sources are Alpaca (data/paper-api) and SEC EDGAR only; ask before adding another source. One exception,
+  approved by the user on 2026-11-05: daily LQQ3.L prices from Yahoo Finance, for `backtest/lqq3.py` only (cached in
+  `data/benchmarks/`, never committed). Pound/dollar rates and sterling cash still come from Alpaca (FXB).
 - The repository is public: never publish an unencrypted snapshot (Alpaca data cannot be redistributed).
 - Market cap is point-in-time: shares come only from filings filed before the date (one-session lag).
   Never back-fill today's share count into history.
