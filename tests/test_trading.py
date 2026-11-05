@@ -43,9 +43,9 @@ def test_keep_matched_does_not_trade_drift_but_invests_idle_cash():
 
 
 def test_trend_switch_sells_one_fund_and_buys_the_other():
-    hold = {"QLD": Holding("QLD", "812.123456", 99_400, 122.4)}
+    hold = {"TQQQ": Holding("TQQQ", "812.123456", 99_400, 122.4)}
     orders = plan_orders({"BIL": 1.0}, hold, 100_000, 600, full=False, fractionable={"BIL": True})
-    assert [(o.side, o.symbol) for o in orders] == [("sell", "QLD"), ("buy", "BIL")]
+    assert [(o.side, o.symbol) for o in orders] == [("sell", "TQQQ"), ("buy", "BIL")]
     assert orders[0].qty == "812.123456" and orders[1].notional == pytest.approx(99_500, abs=0.01)
 
 
@@ -129,10 +129,10 @@ def test_dry_run_places_nothing(monkeypatch):
 
 
 def test_two_strategies_never_share_an_account(monkeypatch):
-    shared = FakePaper(acct_id="same", prices={"A": 100.0, "QLD": 100.0})
+    shared = FakePaper(acct_id="same", prices={"A": 100.0, "TQQQ": 100.0})
     monkeypatch.setattr(runner, "account_for", lambda n: shared)
     monkeypatch.setitem(runner.TARGETS, "momentum", lambda p: _target({"A": 1.0}))
-    monkeypatch.setitem(runner.TARGETS, "qld", lambda p: _target({"QLD": 1.0}, once=False))
-    res = runner.run(["momentum", "qld"])
+    monkeypatch.setitem(runner.TARGETS, "lqq3", lambda p: _target({"TQQQ": 1.0}, once=False))
+    res = runner.run(["momentum", "lqq3"])
     assert "error" not in str(res[0].get("status", ""))
     assert "same paper account" in res[1]["status"]

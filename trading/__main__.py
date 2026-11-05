@@ -1,11 +1,11 @@
-"""CLI: python -m trading {run,status} [--strategy momentum|qld|all] [--dry-run]."""
+"""CLI: python -m trading {run,status} [--strategy momentum|lqq3|all] [--dry-run]."""
 from __future__ import annotations
 
 import argparse
 import json
 import logging
 
-from .run import ACCOUNTS, DESCRIPTION, account_for, run
+from .run import ACCOUNTS, DESCRIPTION, account_for, lqq3_extras, run
 from .targets import TARGETS
 
 
@@ -29,7 +29,8 @@ def status(names: list[str]) -> list[dict]:
         out.append({"strategy": n, "rule": DESCRIPTION[n], "equity": round(eq, 2),
                     "cash": round(float(acct["cash"]), 2), "positions": rows, "target": target,
                     "open orders": [f"{o['side']} {o['symbol']} {o.get('qty') or '$' + str(o.get('notional'))} "
-                                    f"({o['status']})" for o in paper.orders("open")]})
+                                    f"({o['status']})" for o in paper.orders("open")],
+                    **(lqq3_extras(paper) if n == "lqq3" else {})})
     return out
 
 

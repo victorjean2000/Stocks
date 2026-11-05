@@ -67,6 +67,11 @@ class Paper:
     def asset(self, symbol: str) -> dict:
         return self._get(f"/v2/assets/{symbol}")
 
+    def equity_history(self, period: str = "1A") -> "list[tuple[int, float]]":
+        """(unix time, equity) at each daily close, from the account's portfolio history."""
+        h = self._get("/v2/account/portfolio/history", period=period, timeframe="1D")
+        return [(t, float(e)) for t, e in zip(h.get("timestamp") or [], h.get("equity") or []) if e]
+
     def latest_prices(self, symbols: list[str]) -> dict[str, float]:
         """Latest IEX bar close (real time on the free plan), for sizing whole-share orders."""
         if not symbols:

@@ -46,8 +46,9 @@ def month_end_decision(days: pd.DatetimeIndex, upto: pd.Timestamp) -> pd.Timesta
     return ends[-1]
 
 
-def qld_target(paper: Paper) -> Target:
-    """QLD while QQQ's close is above its 200-day average, else BIL (backtest: 'QLD when QQQ > 200-day avg')."""
+def lqq3_target(paper: Paper) -> Target:
+    """TQQQ (3x Nasdaq-100, the US stand-in for London-listed LQQ3) while QQQ's close is above its 200-day
+    average, else BIL (backtest: 'TQQQ when QQQ > 200-day avg' / 'LQQ3 (sim) when QQQ > 200-day avg')."""
     from backtest.indicators import regime
     days, last = sessions(paper)
     bars = market_data.fetch_bars(paper.session, ["QQQ"], (last - pd.Timedelta(days=440)).strftime("%Y-%m-%d"),
@@ -58,9 +59,9 @@ def qld_target(paper: Paper) -> Target:
         raise StaleData(f"QQQ bars end {close.index[-1].date()}, last completed session is {last.date()}")
     on = bool(regime(close, 200, 1).iloc[-1])
     avg = float(close.rolling(200).mean().iloc[-1])
-    return Target("qld", {"QLD" if on else "BIL": 1.0}, last, last, f"qld-{last:%Y%m%d}", once=False,
+    return Target("lqq3", {"TQQQ" if on else "BIL": 1.0}, last, last, f"lqq3-{last:%Y%m%d}", once=False,
                   info={"QQQ close": round(float(close.iloc[-1]), 2), "QQQ 200-day average": round(avg, 2),
-                        "signal": "above: hold QLD" if on else "below: hold BIL (T-bills)"})
+                        "signal": "above: hold TQQQ (LQQ3 in the ISA)" if on else "below: hold BIL (cash in the ISA)"})
 
 
 def momentum_target(paper: Paper) -> Target:
@@ -83,4 +84,4 @@ def momentum_target(paper: Paper) -> Target:
                         "6-1 month returns": {str(names[j]): round(float(r[j]), 3) for j in picks}})
 
 
-TARGETS = {"momentum": momentum_target, "qld": qld_target}
+TARGETS = {"momentum": momentum_target, "lqq3": lqq3_target}

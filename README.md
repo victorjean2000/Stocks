@@ -13,7 +13,7 @@ df = load_panel("2020-01-01", "2024-12-31", universe_only=True)
   `SEC_USER_AGENT`).
 - `python -m backtest.momentum_trend` and `python -m backtest.strategies`: backtests, results in
   `backtest/RESULTS.md` and `backtest/STRATEGIES.md`.
-- `python -m trading status`: the two paper-traded strategies (momentum and QLD trend), one Alpaca paper account
+- `python -m trading status`: the two paper-traded strategies (momentum and LQQ3/TQQQ trend), one Alpaca paper account
   each, traded daily by `.github/workflows/paper-trade.yml`.
 - `python -m pytest`: tests.
 

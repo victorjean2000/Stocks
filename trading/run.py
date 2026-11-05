@@ -17,12 +17,13 @@ log = logging.getLogger(__name__)
 # Environment variables holding each strategy's paper account keys, in order of preference.
 ACCOUNTS = {
     "momentum": [("ALPACA_MOMENTUM_KEY_ID", "ALPACA_MOMENTUM_SECRET_KEY"), ("ALPACA_API_KEY_ID", "ALPACA_API_SECRET_KEY")],
-    "qld": [("ALPACA_QLD_KEY_ID", "ALPACA_QLD_SECRET_KEY")],
+    "lqq3": [("ALPACA_LQQ3_KEY_ID", "ALPACA_LQQ3_SECRET_KEY")],
 }
 DESCRIPTION = {
     "momentum": "Top 10 of the 500 largest US stocks by 6-1 month return, equal weight, rebalanced after each "
                 "month end",
-    "qld": "QLD (2x Nasdaq-100) while QQQ closes above its 200-day average, otherwise BIL (T-bills)",
+    "lqq3": "TQQQ (3x Nasdaq-100, US stand-in for LQQ3) while QQQ closes above its 200-day average, otherwise BIL "
+            "(T-bills)",
 }
 
 
@@ -61,6 +62,34 @@ def cancel_own(paper: Paper, name: str) -> int:
     return len(mine)
 
 
+def account_return(paper: Paper, start: str) -> dict:
+    """The account's return since `start` (its last daily equity before then), in dollars and in pounds."""
+    from backtest.lqq3 import sterling
+    hist = paper.equity_history()
+    acct = paper.account()
+    t0 = pd.Timestamp(start, tz="America/New_York").timestamp()
+    before = [e for t, e in hist if t < t0]
+    base = before[-1] if before else (hist[0][1] if hist else float(acct["last_equity"]))
+    usd = float(acct["equity"]) / base - 1
+    fx, _ = sterling(str((pd.Timestamp(start) - pd.Timedelta(days=10)).date()))
+    fx0 = fx[fx.index < pd.Timestamp(start)].iloc[-1]
+    gbp = (1 + usd) / (fx.iloc[-1] / fx0) - 1
+    return {"in dollars": f"{usd:+.2%}", "in pounds": f"{gbp:+.2%}"}
+
+
+def lqq3_extras(paper: Paper) -> dict:
+    """For the lqq3 account: what real LQQ3 did in pounds on the same signals, and the account's own return."""
+    from backtest.lqq3 import SHADOW_START, shadow
+    out = {}
+    for label, fn in (("LQQ3 in a sterling ISA (same signals, real LQQ3 prices)", shadow),
+                      (f"this account (TQQQ) since {SHADOW_START}", lambda: account_return(paper, SHADOW_START))):
+        try:
+            out[label] = fn()
+        except Exception as e:  # tracking must never block trading
+            out[label] = f"unavailable: {type(e).__name__}: {e}"
+    return out
+
+
 def run_one(name: str, paper: Paper, dry_run: bool) -> dict:
     acct = paper.account()
     if acct.get("status") != "ACTIVE" or acct.get("trading_blocked") or acct.get("account_blocked"):
@@ -96,6 +125,7 @@ def run_one(name: str, paper: Paper, dry_run: bool) -> dict:
         "cancelled earlier open orders": cancelled,
         "market": "open: orders fill now" if clock.get("is_open") else f"closed: orders queue for {clock.get('next_open')}",
         **{k: v for k, v in target.info.items()},
+        **(lqq3_extras(paper) if name == "lqq3" else {}),
     }
 
 
