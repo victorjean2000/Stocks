@@ -147,3 +147,39 @@ def test_skip_most_volatile_never_buys_it():
     # volatility ranks across the three stocks: FLAT 1/3, UP 2/3, VOL 1
     traded = set(simulate(m, dataclasses.replace(p, max_vol_pct=0.7)).trades["ticker"])
     assert "VOL" not in traded and "UP" in traded
+
+
+def _scored_market(close: pd.DataFrame, scores: pd.DataFrame) -> Market:
+    m = _market(close)
+    m._cache[("score", "r6_1")] = scores  # fixed momentum scores, to control the ranking
+    return m
+
+
+def test_monthly_rotation_sells_what_leaves_the_top_and_buys_only_at_month_ends():
+    idx = pd.bdate_range("2019-01-01", periods=60)
+    close = pd.DataFrame({"A": np.linspace(50, 60, 60), "B": np.linspace(40, 44, 60)}, index=idx)
+    scores = pd.DataFrame({"A": 2.0, "B": 1.0}, index=idx)
+    scores.loc["2019-02-28":, "A"] = 0.5  # A drops below B at the February month end
+    m = _scored_market(close, scores)
+    p = Params(start=str(idx[0].date()), n_positions=1, sector_cap=1, momentum="r6_1", monthly=True,
+               refill="monthly", golden_cross=False, trend_entry=False, trend_exit=False)
+    t = simulate(m, p).trades.sort_values("entry")
+    assert t.iloc[0]["ticker"] == "A" and t.iloc[0]["entry"] == pd.Timestamp("2019-02-01")  # first month end
+    assert t.iloc[0]["exit"] == pd.Timestamp("2019-03-01") and t.iloc[0]["reason"] == "rotation"
+    assert t.iloc[1]["ticker"] == "B" and t.iloc[1]["entry"] == pd.Timestamp("2019-03-01")
+
+
+def test_trend_exit_mid_month_waits_for_month_end_and_skips_a_falling_stock():
+    n = 340
+    idx = pd.bdate_range("2019-01-01", periods=n)
+    a = np.r_[np.linspace(50, 150, 305), 150 * 0.96 ** np.arange(1, n - 305 + 1)]  # A breaks down on 3 Mar 2020
+    close = pd.DataFrame({"A": a, "B": np.linspace(40, 80, n)}, index=idx)
+    m = _scored_market(close, pd.DataFrame({"A": 2.0, "B": 1.0}, index=idx))
+    p = Params(start=str(idx[200].date()), n_positions=1, sector_cap=1, momentum="r6_1", monthly=True,
+               refill="monthly", golden_cross=False, trend_entry=False, trend_exit=True)
+    t = simulate(m, p).trades.sort_values("entry")
+    first, second = t.iloc[0], t.iloc[1]
+    assert first["ticker"] == "A" and first["reason"] == "trend"
+    assert pd.Timestamp("2020-03-05") <= first["exit"] <= pd.Timestamp("2020-03-20")  # sold mid-March
+    # the slot stays in cash until the March month end; then B (A is still falling, so it is skipped)
+    assert second["ticker"] == "B" and second["entry"] == pd.Timestamp("2020-04-01")

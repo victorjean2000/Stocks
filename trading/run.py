@@ -90,6 +90,18 @@ def lqq3_extras(paper: Paper) -> dict:
     return out
 
 
+def owner_of(paper: Paper, name: str) -> str | None:
+    """Another strategy whose orders this account holds (its client_order_id prefix), if any. Catches keys
+    that point at the wrong account, which the same-account check cannot see when one strategy runs alone."""
+    others = [n for n in ACCOUNTS if n != name]
+    for o in paper.orders("all", limit=500):
+        cid = o.get("client_order_id") or ""
+        for other in others:
+            if cid.startswith(f"{other}-"):
+                return other
+    return None
+
+
 def run_one(name: str, paper: Paper, dry_run: bool) -> dict:
     acct = paper.account()
     if acct.get("status") != "ACTIVE" or acct.get("trading_blocked") or acct.get("account_blocked"):
@@ -143,6 +155,10 @@ def run(names: list[str], dry_run: bool = False) -> list[dict]:
             if acct_id in seen:
                 raise RuntimeError(f"same paper account as {seen[acct_id]}: each strategy needs its own account")
             seen[acct_id] = n
+            other = owner_of(paper, n)
+            if other:
+                raise RuntimeError(f"this account holds {other} orders, so it is the {other} account: check which "
+                                   f"keys {n} uses ({' / '.join(' + '.join(p) for p in ACCOUNTS[n])})")
             results.append(run_one(n, paper, dry_run))
         except Exception as e:  # one strategy failing must not stop the other
             log.exception("%s failed", n)

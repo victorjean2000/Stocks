@@ -5,7 +5,7 @@ import argparse
 import json
 import logging
 
-from .run import ACCOUNTS, DESCRIPTION, account_for, lqq3_extras, run
+from .run import ACCOUNTS, DESCRIPTION, account_for, lqq3_extras, owner_of, run
 from .targets import TARGETS
 
 
@@ -15,6 +15,11 @@ def status(names: list[str]) -> list[dict]:
         paper = account_for(n)
         if paper is None:
             out.append({"strategy": n, "status": "no keys configured"})
+            continue
+        other = owner_of(paper, n)
+        if other:
+            out.append({"strategy": n, "status": f"wrong account: it holds {other} orders, so these keys belong to "
+                                                  f"the {other} account"})
             continue
         acct = paper.account()
         eq = float(acct["equity"])

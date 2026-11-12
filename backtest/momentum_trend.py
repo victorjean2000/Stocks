@@ -65,6 +65,12 @@ class Params:
     market_sma: int = 200
     max_vol_pct: float | None = None  # skip candidates above this universe percentile of 6-month vol
     earnings_days: int = 0  # hold nothing within this many sessions of an earnings release
+    pool: int | None = None  # only the `pool` largest companies by market cap (point-in-time)
+    golden_cross: bool = True  # buy only while SMA50 > SMA200
+    trend_entry: bool = True  # buy only after confirm_days bullish SuperTrend closes
+    trend_exit: bool = True  # sell after confirm_days bearish SuperTrend closes
+    monthly: bool = False  # at each month end sell holdings that left the top n_positions; buy at month ends
+    refill: str = "daily"  # with monthly: "daily" refills a slot freed mid-month at once, "monthly" waits
     start: str = "2017-01-03"
     capital: float = 100_000.0
 
@@ -78,6 +84,7 @@ class Market:
     universe: pd.DataFrame
     sector: pd.Series
     benchmark: pd.Series | None = None  # SPY close on the same dates (market filter)
+    size_rank: pd.DataFrame | None = None  # rank by market cap within the universe (1 = largest)
     earnings: pd.DataFrame | None = None  # ticker, session: first session reacting to each release
     jumps_fixed: list = field(default_factory=list)
     _cache: dict = field(default_factory=dict)
@@ -103,6 +110,11 @@ class Market:
         key = ("score", kind)
         if key not in self._cache:
             f = self.features()
+            if kind in ("r6_1", "r12_1"):  # plain 6-1 or 12-1 month return
+                c = self.close
+                raw = c.shift(21) / c.shift(126) - 1 if kind == "r6_1" else f["r12_1"]
+                self._cache[key] = raw.where(self.universe)
+                return self._cache[key]
             if kind == "composite":
                 parts = [f["r3"], f["r6"], f["r12_1"]]
             elif kind == "vol_adjusted":
@@ -139,7 +151,7 @@ class Market:
 
 def load_market(start: str = "2016-01-01", benchmark: bool = True, earnings: bool = True) -> Market:
     """Wide price frames for every ticker that is ever in the universe, plus SPY and earnings dates."""
-    df = load_panel(start, columns=["open", "high", "low", "close", "in_universe", "sector"])
+    df = load_panel(start, columns=["open", "high", "low", "close", "in_universe", "sector", "mcap"])
     ever = df.loc[df["in_universe"], "ticker"].unique()
     df = df[df["ticker"].isin(ever)]
 
@@ -151,6 +163,7 @@ def load_market(start: str = "2016-01-01", benchmark: bool = True, earnings: boo
     sector = df.groupby("ticker", observed=True)["sector"].last().astype(object)
     sector = sector.reindex(c.columns).fillna("Unknown")
     m = Market(o, h, l, c, uni, sector)
+    m.size_rank = piv("mcap").astype("float64").where(uni).rank(axis=1, ascending=False)
     # Corporate actions Alpaca did not adjust (stockdata flags them): scale earlier prices so a
     # position held across that day does not book a fake jump.
     jp = paths().reports / "price_jumps.csv"
@@ -195,12 +208,25 @@ def simulate(m: Market, p: Params) -> Result:
     golden = (fast > slow).fillna(False)
     entry_ok = confirmed(bull, 1.0, p.confirm_days)
     exit_sig = confirmed(bull, 0.0, p.confirm_days)
+    if not p.trend_exit:
+        exit_sig = exit_sig & False
     if p.death_cross_exit:
         exit_sig = exit_sig | (fast < slow).fillna(False)
     score = m.score(p.momentum)
-    eligible = m.universe & golden & entry_ok & score.notna()
+    rankable = m.universe & score.notna()
+    if p.pool is not None:
+        if m.size_rank is None:
+            raise ValueError("pool needs Market.size_rank (market-cap ranks)")
+        rankable = rankable & (m.size_rank <= p.pool)
+    eligible = rankable
+    if p.golden_cross:
+        eligible = eligible & golden
+    if p.trend_entry:
+        eligible = eligible & entry_ok
     if p.max_vol_pct is not None:
         eligible = eligible & (m.vol_rank() <= p.max_vol_pct)
+    eligible = eligible & ~exit_sig  # never buy what the exit rule would sell the next morning
+    RK = rankable.to_numpy()
 
     dates = m.close.index
     tick = m.close.columns.to_numpy()
@@ -268,6 +294,11 @@ def simulate(m: Market, p: Params) -> Result:
         # 3) signals at today's close -> orders for tomorrow's open
         if i + 1 >= n_t:
             break
+        month_end = dates[i + 1].month != dates[i].month
+        top = None
+        if p.monthly and month_end:  # this month's top n by score, trend rules aside
+            idx = np.flatnonzero(RK[i] & np.isfinite(S[i]))
+            top = set(idx[np.argsort(-S[i, idx], kind="stable")][:p.n_positions].tolist())
         for j in held:
             if j in pend_sell:
                 continue
@@ -277,9 +308,12 @@ def simulate(m: Market, p: Params) -> Result:
                 pend_sell[j] = "earnings"
             elif not on[i]:
                 pend_sell[j] = "market"
+            elif top is not None and j not in top:
+                pend_sell[j] = "rotation"
         remaining = [j for j in held if j not in pend_sell]
         n_free = p.n_positions - len(remaining)
-        if n_free > 0 and on[i]:
+        can_buy = not p.monthly or month_end or p.refill == "daily"
+        if n_free > 0 and on[i] and can_buy:
             ok = E[i] if B is None else E[i] & ~B[i + 1]
             cand = np.flatnonzero(ok)
             cand = cand[~np.isin(cand, list(held))]
@@ -361,6 +395,26 @@ SENSITIVITIES = [
 ]
 VARIANTS = MAIN + SENSITIVITIES
 
+# Review (2026-11-12): the paper-traded momentum strategy (backtest/strategies.py: top 10 of the 500 largest by
+# 6-1 month return, rotated monthly) with the user's SuperTrend rules added back one at a time. From 2017-02-01,
+# like the strategy search.
+REVIEW_START = "2017-02-01"
+MOMO = dict(start=REVIEW_START, pool=500, momentum="r6_1", n_positions=10, sector_cap=10)
+ROT = dict(MOMO, golden_cross=False, trend_entry=False, monthly=True)
+REVIEW = [
+    Params(name="Paper strategy: monthly top 10 of the 500 largest, no SuperTrend", **ROT, trend_exit=False,
+           refill="monthly"),
+    Params(name="+ your 3-day SuperTrend exit, cash until month end", **ROT, trend_exit=True, refill="monthly"),
+    Params(name="+ your 3-day SuperTrend exit, refill next day", **ROT, trend_exit=True, refill="daily"),
+    Params(name="+ SuperTrend(10,3) exit after 10 days, refill next day", **ROT, trend_exit=True, refill="daily",
+           confirm_days=10),
+    Params(name="+ SuperTrend(10,4) exit after 10 days, refill next day", **ROT, trend_exit=True, refill="daily",
+           confirm_days=10, st_mult=4.0),
+    Params(name="+ SuperTrend(10,5) exit after 10 days, refill next day", **ROT, trend_exit=True, refill="daily",
+           confirm_days=10, st_mult=5.0),
+    Params(name="Your full rules on the same pool (golden cross, 3-day SuperTrend in and out)", **MOMO),
+]
+
 
 def run_all(variants: list[Params] | None = None) -> dict:
     variants = variants or VARIANTS
@@ -368,6 +422,7 @@ def run_all(variants: list[Params] | None = None) -> dict:
     m = load_market()
     log.info("market: %d dates x %d tickers (%.0fs)", *m.close.shape, time.time() - t0)
     res = [simulate(m, p) for p in variants]
+    review = [simulate(m, p) for p in REVIEW]
     base = res[0]
     start = str(base.equity.index[0].date())
     bm = {"SPY": spy().reindex(base.equity.index).ffill(), "EW": equal_weight_universe(m, start)}
@@ -380,7 +435,8 @@ def run_all(variants: list[Params] | None = None) -> dict:
     pd.concat([r.trades.assign(variant=r.params.name) for r in res]).to_csv(out_dir / "trades.csv", index=False)
     pd.concat([r.holdings.assign(variant=r.params.name) for r in res]).to_csv(
         out_dir / "month_end_holdings.csv", index=False)
-    return {"market": m, "results": res, "benchmarks": bm, "curves": curves, "seconds": time.time() - t0}
+    return {"market": m, "results": res, "review": review, "benchmarks": bm, "curves": curves,
+            "seconds": time.time() - t0}
 
 
 # ------------------------------------------------------------------ reporting
@@ -532,6 +588,7 @@ def report(out: dict) -> str:
         "Earnings blackout = sell 5 sessions before the first session that reacts to the results and do not "
         "buy again until 6 sessions after it.", "",
         "## Other sensitivities", "", md(tbl.loc[sens_rows, SHOW], "Variant"), "",
+        *review_section(out), "",
         "## Calendar-year returns", "", md(yr, "Year"), "",
         "## Why positions were sold (closed trades)", "", md(reasons, "Variant"), "",
     ]
@@ -587,6 +644,40 @@ def report(out: dict) -> str:
               "6 sessions ahead. Companies usually announce it 2 to 4 weeks before, but not always.",
               "- Sector is today's SIC-based sector for every date."]
     return "\n".join(lines)
+
+
+def review_section(out: dict) -> list[str]:
+    """The paper momentum strategy with the user's SuperTrend rules added back, from REVIEW_START."""
+    rev = out.get("review") or []
+    if not rev:
+        return []
+    start = rev[0].equity.index[0]
+    sp = spy().reindex(rev[0].equity.index).ffill()
+    split = pd.Timestamp("2021-12-31")
+    rows = {}
+    for r in rev:
+        eq = r.equity
+        s, closed = stats(eq), r.trades.dropna(subset=["exit"])
+        yrs = (eq.index[-1] - eq.index[0]).days / 365.25
+        a, b = eq[eq.index <= split], eq[eq.index >= split]
+        rows[r.params.name] = {
+            "CAGR": f"{s['CAGR']:.1%}", "vs SPY": f"{s['CAGR'] - stats(sp)['CAGR']:+.1%}",
+            "Sharpe (rf=0)": f"{s['Sharpe (rf=0)']:.2f}", "Max drawdown": f"{s['Max drawdown']:.1%}",
+            "Worst year": f"{yearly(eq).min():+.0%}", "2017-21": f"{stats(a)['CAGR']:.1%}",
+            "2022-26": f"{stats(b)['CAGR']:.1%}", "Trades per year": f"{len(closed) / yrs:.0f}",
+            "SuperTrend exits": int((closed["reason"] == "trend").sum())}
+    rows["SPY"] = {"CAGR": f"{stats(sp)['CAGR']:.1%}", "vs SPY": "", "Sharpe (rf=0)": f"{stats(sp)['Sharpe (rf=0)']:.2f}",
+                   "Max drawdown": f"{stats(sp)['Max drawdown']:.1%}", "Worst year": f"{yearly(sp).min():+.0%}",
+                   "2017-21": f"{stats(sp[sp.index <= split])['CAGR']:.1%}",
+                   "2022-26": f"{stats(sp[sp.index >= split])['CAGR']:.1%}", "Trades per year": "", "SuperTrend exits": ""}
+    return ["## The paper momentum strategy with your SuperTrend rules", "",
+            f"From {start.date()}, as in the strategy search. The paper strategy rotates monthly into the top 10 of "
+            "the 500 largest stocks by 6-1 month return and has no SuperTrend rule; these rows add your rules back. "
+            "A 3-day SuperTrend exit sells momentum winners on ordinary pullbacks (hundreds of exits) and buys "
+            "the next name, which costs about half the return. Waiting for 10 bearish closes keeps most of it and "
+            "trims the worst year. The 10-day settings were picked from a small grid, so treat the differences "
+            "between them as noise.", "",
+            md(pd.DataFrame(rows).T, "Variant")]
 
 
 def md(df: pd.DataFrame, first: str = "") -> str:

@@ -136,3 +136,13 @@ def test_two_strategies_never_share_an_account(monkeypatch):
     res = runner.run(["momentum", "lqq3"])
     assert "error" not in str(res[0].get("status", ""))
     assert "same paper account" in res[1]["status"]
+
+
+def test_a_strategy_refuses_an_account_holding_another_strategys_orders(monkeypatch):
+    lqq3_account = FakePaper(acct_id="lqq3-acct", prices={"A": 100.0, "BIL": 91.0})
+    lqq3_account.closed.append({"client_order_id": "lqq3-20261105-fix-BIL-buy-0d773670", "filled_qty": "1",
+                                "status": "filled", "symbol": "BIL", "side": "buy"})
+    monkeypatch.setattr(runner, "account_for", lambda n: lqq3_account)  # momentum keys point at the lqq3 account
+    monkeypatch.setitem(runner.TARGETS, "momentum", lambda p: _target({"A": 1.0}))
+    res = runner.run(["momentum"])
+    assert "it is the lqq3 account" in res[0]["status"] and lqq3_account.submitted == []
