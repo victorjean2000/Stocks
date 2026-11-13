@@ -57,6 +57,13 @@ more, on a generic next-open engine with ETF prices from Alpaca and T-bill (BIL)
 the tuning years, 2022-26 the out-of-sample check, plus a risk-matched SPY comparison. Results:
 `backtest/STRATEGIES.md`; curves and the full table in `data/backtests/strategies/`.
 
+`python -m backtest.momentum_refine` (about 2 minutes on 4 cores) tests changes to the paper momentum strategy one at a
+time: profit taking (sell all or half at a gain, trailing stops, stop losses, selling stretched stocks), rank buffers,
+holdings, lookback, pool, SuperTrend exits. Every variant runs at 10 rebalance days (0, 2, ..., 18 sessions after
+month end; the result depends a lot on the day) and is judged on 2017-21, checked on 2022-26. Results:
+`backtest/MOMENTUM_REFINE.md`. The simulator options it uses (`take_profit`, `trail_stop`, `stop_loss`,
+`extension_exit`, `keep_rank`, `reweight`, `offset`, `cash_yield`) are `Params` fields in `backtest/momentum_trend.py`.
+
 `python -m backtest.lqq3` backtests the trend rule on real LQQ3 prices in pounds (the user's ISA version: LQQ3 while
 QQQ closes above its 200-day average, else sterling cash, trading at the next London open). Results:
 `backtest/LQQ3.md`.

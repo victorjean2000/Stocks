@@ -183,3 +183,97 @@ def test_trend_exit_mid_month_waits_for_month_end_and_skips_a_falling_stock():
     assert pd.Timestamp("2020-03-05") <= first["exit"] <= pd.Timestamp("2020-03-20")  # sold mid-March
     # the slot stays in cash until the March month end; then B (A is still falling, so it is skipped)
     assert second["ticker"] == "B" and second["entry"] == pd.Timestamp("2020-04-01")
+
+
+# ------------------------------------------------------------------ profit taking, stops, reweighting
+
+ROTATE = dict(momentum="r6_1", monthly=True, golden_cross=False, trend_entry=False, trend_exit=False)
+
+
+def test_take_profit_sells_after_the_level_and_sits_out_until_the_next_decision():
+    idx = pd.bdate_range("2019-01-01", periods=60)
+    close = pd.DataFrame({"A": np.linspace(50, 100, 60), "B": np.linspace(40, 44, 60)}, index=idx)
+    m = _scored_market(close, pd.DataFrame({"A": 2.0, "B": 1.0}, index=idx))
+    p = Params(start=str(idx[0].date()), n_positions=1, sector_cap=1, refill="daily", take_profit=0.1, **ROTATE)
+    t = simulate(m, p).trades.sort_values(["entry", "ticker"])
+    a1, b, a2 = t.iloc[0], t.iloc[1], t.iloc[2]
+    assert a1["ticker"] == "A" and a1["entry"] == idx[1]  # bought at the first open (daily refill)
+    hit = close.index[(close.index > idx[1]) & (close["A"] >= m.open.loc[idx[1], "A"] * 1.1)][0]
+    sold = idx[idx.get_loc(hit) + 1]
+    assert a1["reason"] == "take_profit" and a1["exit"] == sold and sold < pd.Timestamp("2019-01-31")
+    # the slot is refilled with B the same morning; A is back only after the next month end
+    assert b["ticker"] == "B" and b["entry"] == sold and b["exit"] == pd.Timestamp("2019-02-01")
+    assert a2["ticker"] == "A" and a2["entry"] == pd.Timestamp("2019-02-01")
+
+
+def test_partial_take_profit_trims_once_or_on_a_ladder():
+    idx = pd.bdate_range("2019-01-01", periods=80)
+    close = pd.DataFrame({"A": np.linspace(50, 100, 80)}, index=idx)
+    m = _scored_market(close, pd.DataFrame({"A": 1.0}, index=idx))
+    p = Params(start=str(idx[0].date()), n_positions=1, sector_cap=1, refill="monthly", take_profit=0.1,
+               take_profit_part=0.5, **ROTATE)
+    once = simulate(m, p)
+    assert once.trims == 1 and once.trades["reason"].tolist() == ["open"]  # still held, half of it
+    entry_px = m.open.loc["2019-02-01", "A"]
+    hit = close.index[(close.index > "2019-02-01") & (close["A"] >= entry_px * 1.1)][0]
+    after = idx[idx.get_loc(hit) + 1]
+    assert once.invested.loc[after] < 0.6 < once.invested.loc[hit]
+    ladder = simulate(m, dataclasses.replace(p, take_profit_ladder=True))
+    assert ladder.trims >= 3  # +10% from each trim price again
+
+
+def test_trailing_stop_sells_after_the_drop_from_the_peak():
+    idx = pd.bdate_range("2019-01-01", periods=70)
+    a = np.r_[np.linspace(50, 80, 40), 80 * 0.97 ** np.arange(1, 31)]  # peaks on day 39, then -3% a day
+    close = pd.DataFrame({"A": a}, index=idx)
+    m = _scored_market(close, pd.DataFrame({"A": 1.0}, index=idx))
+    p = Params(start=str(idx[0].date()), n_positions=1, sector_cap=1, refill="monthly", trail_stop=0.2, **ROTATE)
+    t = simulate(m, p).trades
+    hit = close.index[(close.index > idx[39]) & (close["A"] <= 80 * 0.8)][0]
+    assert t.iloc[0]["reason"] == "trail_stop" and t.iloc[0]["exit"] == idx[idx.get_loc(hit) + 1]
+
+
+def test_reweight_trades_back_to_equal_weight_at_each_decision():
+    idx = pd.bdate_range("2019-01-01", periods=60)
+    close = pd.DataFrame({"A": 50 * 1.01 ** np.arange(60), "B": np.full(60, 40.0)}, index=idx)
+    m = _scored_market(close, pd.DataFrame({"A": 2.0, "B": 1.0}, index=idx))
+    m.open = close.shift(1).fillna(close)  # no overnight gaps: the open is the previous close
+    p = Params(start=str(idx[0].date()), n_positions=2, sector_cap=2, refill="monthly", cost_bps=0.0, **ROTATE)
+    d0, d1 = pd.Timestamp("2019-02-28"), pd.Timestamp("2019-03-01")
+    drift = simulate(m, p).equity
+    equal = simulate(m, dataclasses.replace(p, reweight=True)).equity
+    # 50/50 again at the open of 1 March: that day's return is the average of +1% and 0%
+    assert equal[d1] / equal[d0] == pytest.approx(1.005, abs=1e-12)
+    assert drift[d1] / drift[d0] > 1.0054  # A has grown to about 55%
+
+
+def test_keep_rank_holds_a_stock_that_slips_inside_the_buffer():
+    idx = pd.bdate_range("2019-01-01", periods=60)
+    close = pd.DataFrame({"A": np.linspace(50, 60, 60), "B": np.linspace(40, 44, 60)}, index=idx)
+    scores = pd.DataFrame({"A": 2.0, "B": 1.0}, index=idx)
+    scores.loc["2019-02-28":, "A"] = 0.5  # A slips to second place
+    m = _scored_market(close, scores)
+    p = Params(start=str(idx[0].date()), n_positions=1, sector_cap=1, refill="monthly", **ROTATE)
+    assert simulate(m, p).trades.iloc[0]["reason"] == "rotation"
+    kept = simulate(m, dataclasses.replace(p, keep_rank=2)).trades
+    assert kept["ticker"].tolist() == ["A"] and kept.iloc[0]["reason"] == "open"
+
+
+def test_offset_moves_the_monthly_decision():
+    idx = pd.bdate_range("2019-01-01", periods=60)
+    close = pd.DataFrame({"A": np.linspace(50, 60, 60)}, index=idx)
+    m = _scored_market(close, pd.DataFrame({"A": 1.0}, index=idx))
+    p = Params(start=str(idx[0].date()), n_positions=1, sector_cap=1, refill="monthly", offset=3, **ROTATE)
+    # 3 sessions after 31 January is the close of 5 February; the order fills at the next open
+    assert simulate(m, p).trades.iloc[0]["entry"] == pd.Timestamp("2019-02-06")
+
+
+def test_idle_cash_earns_tbills_only_when_asked():
+    idx = pd.bdate_range("2019-01-01", periods=30)
+    close = pd.DataFrame({"A": np.linspace(50, 60, 30)}, index=idx)
+    m = _market(close, cash_r=pd.Series(1e-4, index=idx))
+    m.universe[:] = False  # nothing to buy: all cash
+    p = Params(start=str(idx[0].date()), n_positions=1, **ROTATE)
+    assert simulate(m, p).equity.iloc[-1] == pytest.approx(p.capital)
+    eq = simulate(m, dataclasses.replace(p, cash_yield=True)).equity
+    assert eq.iloc[-1] / eq.iloc[0] == pytest.approx(1.0001 ** 29)

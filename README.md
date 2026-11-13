@@ -11,8 +11,9 @@ df = load_panel("2020-01-01", "2024-12-31", universe_only=True)
 - `DATA.md`: sources, schema, point-in-time rules, refresh commands, known gaps.
 - `python -m stockdata update`: incremental update (needs `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`,
   `SEC_USER_AGENT`).
-- `python -m backtest.momentum_trend` and `python -m backtest.strategies`: backtests, results in
-  `backtest/RESULTS.md` and `backtest/STRATEGIES.md`.
+- `python -m backtest.momentum_trend`, `python -m backtest.strategies` and `python -m backtest.momentum_refine`:
+  backtests, results in `backtest/RESULTS.md`, `backtest/STRATEGIES.md` and `backtest/MOMENTUM_REFINE.md`
+  (profit taking and other refinements of the paper momentum strategy).
 - `python -m trading status`: the two paper-traded strategies (momentum and LQQ3/TQQQ trend), one Alpaca paper account
   each, traded daily by `.github/workflows/paper-trade.yml`.
 - `python -m pytest`: tests.

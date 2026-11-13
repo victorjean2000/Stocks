@@ -23,6 +23,12 @@ Optional rules (Params fields), run as variants:
     of E+N: a holding is sold at the open of E-N, and the stock cannot be bought again
     before the open of E+N+1. Uses the actual release dates, so it assumes they are known
     N+1 sessions ahead (companies usually announce the date weeks before).
+  monthly=True (the paper-traded rotation): at each month end, or `offset` sessions later, sell holdings
+    that left the top n_positions (top keep_rank with a buffer) and fill the free slots; reweight=True
+    also trades every holding back to equal weight.
+  Profit taking and stops (take_profit, take_profit_part, trail_stop, stop_loss, extension_exit) are
+    checked at each close and traded at the next open; a stock they sell sits out rebuy_wait monthly
+    decisions. cash_yield=True pays the T-bill return on idle cash. backtest/momentum_refine.py tests them.
 
 Run: python -m backtest.momentum_trend
 """
@@ -71,6 +77,18 @@ class Params:
     trend_exit: bool = True  # sell after confirm_days bearish SuperTrend closes
     monthly: bool = False  # at each month end sell holdings that left the top n_positions; buy at month ends
     refill: str = "daily"  # with monthly: "daily" refills a slot freed mid-month at once, "monthly" waits
+    offset: int = 0  # monthly decisions this many sessions after the last session of the month
+    keep_rank: int | None = None  # with monthly: keep a holding while it ranks in the top keep_rank
+    reweight: bool = False  # with monthly: trade every holding back to equal weight at each decision
+    # Profit taking and stops: checked at each close, traded at the next open.
+    take_profit: float | None = None  # sell when the close is this far above the entry price (0.5 = +50%)
+    take_profit_part: float = 1.0  # fraction sold then; below 1 the rest is held (once, or see the ladder)
+    take_profit_ladder: bool = False  # partial: trim again each time it gains take_profit from the last trim
+    trail_stop: float | None = None  # sell when the close is this far below the highest close since entry
+    stop_loss: float | None = None  # sell when the close is this far below the entry price
+    extension_exit: float | None = None  # sell (and never buy) when the close is this far above its 50-day average
+    rebuy_wait: int = 1  # monthly decisions a stock sold by those rules sits out (1 = back at the next one)
+    cash_yield: bool = False  # idle cash earns the T-bill return (Market.cash_r, from BIL)
     start: str = "2017-01-03"
     capital: float = 100_000.0
 
@@ -86,6 +104,7 @@ class Market:
     benchmark: pd.Series | None = None  # SPY close on the same dates (market filter)
     size_rank: pd.DataFrame | None = None  # rank by market cap within the universe (1 = largest)
     earnings: pd.DataFrame | None = None  # ticker, session: first session reacting to each release
+    cash_r: pd.Series | None = None  # daily T-bill return (BIL) on the same dates
     jumps_fixed: list = field(default_factory=list)
     _cache: dict = field(default_factory=dict)
 
@@ -149,8 +168,19 @@ class Market:
         return self._cache[key]
 
 
-def load_market(start: str = "2016-01-01", benchmark: bool = True, earnings: bool = True) -> Market:
-    """Wide price frames for every ticker that is ever in the universe, plus SPY and earnings dates."""
+def tbill_returns(index: pd.DatetimeIndex) -> pd.Series:
+    """Daily return of BIL (1-3 month T-bill ETF, Alpaca) on `index`, 0 where unknown."""
+    from .strategies import etf_bars  # the strategy search keeps the ETF bars cached
+
+    bars = etf_bars()
+    c = bars[bars["ticker"] == "BIL"].set_index("date")["c"].astype(float).sort_index()
+    return c.reindex(index).ffill().pct_change().fillna(0.0)
+
+
+def load_market(start: str = "2016-01-01", benchmark: bool = True, earnings: bool = True,
+                tbills: bool = True) -> Market:
+    """Wide price frames for every ticker that is ever in the universe, plus SPY, T-bill returns
+    and earnings dates."""
     df = load_panel(start, columns=["open", "high", "low", "close", "in_universe", "sector", "mcap"])
     ever = df.loc[df["in_universe"], "ticker"].unique()
     df = df[df["ticker"].isin(ever)]
@@ -178,6 +208,11 @@ def load_market(start: str = "2016-01-01", benchmark: bool = True, earnings: boo
             m.jumps_fixed.append((r.ticker, str(r.date.date()), R))
     if benchmark:
         m.benchmark = spy().reindex(c.index).ffill()
+    if tbills:
+        try:
+            m.cash_r = tbill_returns(c.index)
+        except Exception as e:  # network or cache trouble: only the cash_yield variants need it
+            log.warning("no T-bill returns (%s); cash_yield variants will fail", e)
     if earnings:
         try:
             ev = load_earnings(c.columns)
@@ -200,6 +235,8 @@ class Result:
     trades: pd.DataFrame
     holdings: pd.DataFrame
     turnover: float
+    trims: int = 0  # partial take-profit sales
+    top_weight: pd.Series | None = None  # largest holding's share of the account at each close
 
 
 def simulate(m: Market, p: Params) -> Result:
@@ -226,6 +263,9 @@ def simulate(m: Market, p: Params) -> Result:
     if p.max_vol_pct is not None:
         eligible = eligible & (m.vol_rank() <= p.max_vol_pct)
     eligible = eligible & ~exit_sig  # never buy what the exit rule would sell the next morning
+    ext = m.close / m.sma(50) - 1 if p.extension_exit is not None else None
+    if ext is not None:  # nor a stock already stretched above its 50-day average
+        eligible = eligible & ~(ext >= p.extension_exit)
     RK = rankable.to_numpy()
 
     dates = m.close.index
@@ -236,19 +276,37 @@ def simulate(m: Market, p: Params) -> Result:
     n_t, n_s = C.shape
     on = m.risk_on(p.market_sma, p.confirm_days).to_numpy() if p.market_filter else np.ones(n_t, bool)
     B = m.blackout(p.earnings_days).to_numpy() if p.earnings_days else None
+    EXT = ext.to_numpy() if ext is not None else None
+    if p.cash_yield and m.cash_r is None:
+        raise ValueError("cash_yield needs Market.cash_r (T-bill returns)")
+    CR = m.cash_r.reindex(dates).fillna(0.0).to_numpy() if p.cash_yield else np.zeros(n_t)
+    # decision days: `offset` sessions after the last session of each month, with a session left to trade
+    decide = np.zeros(n_t, bool)
+    last = np.flatnonzero(dates.month[1:] != dates.month[:-1]) + p.offset
+    decide[last[last < n_t - 1]] = True
     sec_codes, sec_names = pd.factorize(m.sector)
     i0 = int(dates.searchsorted(pd.Timestamp(p.start)))
     cost = p.cost_bps / 1e4
+    keep_n = max(p.keep_rank or p.n_positions, p.n_positions)
+    exit_rules = any(x is not None for x in (p.take_profit, p.trail_stop, p.stop_loss, p.extension_exit))
 
     cash = p.capital
     shares = np.zeros(n_s)
     held: set[int] = set()
     entry: dict[int, tuple] = {}
+    ref: dict[int, float] = {}  # take-profit reference: the entry price, or the last trim with a ladder
+    peak: dict[int, float] = {}  # highest close since entry (trailing stop)
+    trimmed: set[int] = set()
+    wait = np.zeros(n_s, dtype=int)  # decisions a stock sold by a profit or stop rule still sits out
     pend_sell: dict[int, str] = {}  # ticker column -> exit reason
+    pend_trim: dict[int, float] = {}  # ticker column -> fraction of its shares to sell
     pend_buy: list[int] = []
+    rebalance = False
     eq = np.full(n_t, np.nan)
     inv = np.full(n_t, np.nan)
+    top_w = np.full(n_t, np.nan)
     traded = 0.0
+    trims = 0
     trades = []
     snap = []
 
@@ -270,8 +328,47 @@ def simulate(m: Market, p: Params) -> Result:
                                "return": px / epx - 1, "days": i - ei, "reason": why})
                 shares[j] = 0.0
                 held.discard(j)
+                trimmed.discard(j)
             pend_sell = retry
-        if pend_buy:
+        for j, frac in pend_trim.items():  # partial take-profit
+            px = O[i, j]
+            if j in held and j not in pend_sell and np.isfinite(px):
+                value = shares[j] * frac * px
+                cash += value * (1 - cost)
+                traded += value
+                shares[j] *= 1 - frac
+                trims += 1
+                trimmed.add(j)
+                if p.take_profit_ladder:
+                    ref[j] = px
+        pend_trim = {}
+        if rebalance:  # every holding and each new pick to 1 / n_positions of the account
+            mark = [O[i, j] if np.isfinite(O[i, j]) else C[i - 1, j] for j in held]
+            target = (cash + float(np.dot([shares[j] for j in held], mark))) / p.n_positions
+            keep = [j for j in held if j not in pend_sell and np.isfinite(O[i, j])]
+            new = [j for j in pend_buy if np.isfinite(O[i, j])][:max(0, p.n_positions - len(held))]
+            for j in keep:  # trims first, so the cash is there for the top-ups
+                excess = shares[j] * O[i, j] - target
+                if excess > 0:
+                    cash += excess * (1 - cost)
+                    traded += excess
+                    shares[j] -= excess / O[i, j]
+            need = {j: target - shares[j] * O[i, j] for j in keep}
+            need = {j: v for j, v in need.items() if v > 0} | {j: target for j in new}
+            total = sum(need.values())
+            scale = min(1.0, cash / total) if total > 0 else 0.0
+            for j, v in need.items():
+                amount, px = v * scale, O[i, j]
+                shares[j] += amount * (1 - cost) / px
+                cash -= amount
+                traded += amount
+                if j not in held:
+                    held.add(j)
+                    entry[j] = (i, px, amount)
+                    ref[j] = peak[j] = px
+            rebalance = False
+            pend_buy = []
+        elif pend_buy:
             n_free = p.n_positions - len(held)
             if n_free > 0:
                 alloc = cash / n_free
@@ -284,24 +381,33 @@ def simulate(m: Market, p: Params) -> Result:
                     traded += alloc
                     held.add(j)
                     entry[j] = (i, px, alloc)
+                    ref[j] = peak[j] = px
             pend_buy = []
         # 2) mark to market at the close
-        pos = float(sum(shares[j] * C[i, j] for j in held))
+        cash *= 1 + CR[i]
+        values = [shares[j] * C[i, j] for j in held]
+        pos = float(sum(values))
         eq[i] = cash + pos
         inv[i] = pos / eq[i] if eq[i] > 0 else 0.0
+        top_w[i] = max(values) / eq[i] if values and eq[i] > 0 else 0.0
         if dates[i].is_month_end or i == n_t - 1:
             snap.append({"date": dates[i], "holdings": ",".join(sorted(tick[j] for j in held))})
         # 3) signals at today's close -> orders for tomorrow's open
         if i + 1 >= n_t:
             break
-        month_end = dates[i + 1].month != dates[i].month
+        month_end = decide[i]
+        reset = p.monthly and p.reweight and month_end and on[i]  # weights go back to equal tomorrow
+        if month_end:
+            wait[wait > 0] -= 1
         top = None
-        if p.monthly and month_end:  # this month's top n by score, trend rules aside
+        if p.monthly and month_end:  # this month's top n by score (top keep_rank to stay), trend rules aside
             idx = np.flatnonzero(RK[i] & np.isfinite(S[i]))
-            top = set(idx[np.argsort(-S[i, idx], kind="stable")][:p.n_positions].tolist())
+            top = set(idx[np.argsort(-S[i, idx], kind="stable")][:keep_n].tolist())
         for j in held:
             if j in pend_sell:
                 continue
+            c = C[i, j]
+            peak[j] = max(peak[j], c)
             if X[i, j]:
                 pend_sell[j] = "trend"
             elif B is not None and B[i + 1, j]:
@@ -310,6 +416,22 @@ def simulate(m: Market, p: Params) -> Result:
                 pend_sell[j] = "market"
             elif top is not None and j not in top:
                 pend_sell[j] = "rotation"
+            elif exit_rules:
+                why = None
+                if p.stop_loss is not None and c <= entry[j][1] * (1 - p.stop_loss):
+                    why = "stop_loss"
+                elif p.trail_stop is not None and c <= peak[j] * (1 - p.trail_stop):
+                    why = "trail_stop"
+                elif p.extension_exit is not None and EXT[i, j] >= p.extension_exit:
+                    why = "extension"
+                elif p.take_profit is not None and c >= ref[j] * (1 + p.take_profit):
+                    if p.take_profit_part >= 1:
+                        why = "take_profit"
+                    elif not reset and (p.take_profit_ladder or j not in trimmed):
+                        pend_trim[j] = p.take_profit_part
+                if why:
+                    pend_sell[j] = why
+                    wait[j] = p.rebuy_wait
         remaining = [j for j in held if j not in pend_sell]
         n_free = p.n_positions - len(remaining)
         can_buy = not p.monthly or month_end or p.refill == "daily"
@@ -317,6 +439,8 @@ def simulate(m: Market, p: Params) -> Result:
             ok = E[i] if B is None else E[i] & ~B[i + 1]
             cand = np.flatnonzero(ok)
             cand = cand[~np.isin(cand, list(held))]
+            if exit_rules:
+                cand = cand[wait[cand] == 0]
             if cand.size:
                 order = cand[np.argsort(-S[i, cand], kind="stable")]
                 counts = Counter(sec_codes[j] for j in remaining)
@@ -329,6 +453,7 @@ def simulate(m: Market, p: Params) -> Result:
                     if len(picks) == n_free:
                         break
                 pend_buy = picks
+        rebalance = reset
 
     for j in held:  # positions still open at the end
         ei, epx, _ = entry[j]
@@ -339,7 +464,7 @@ def simulate(m: Market, p: Params) -> Result:
     years = (equity.index[-1] - equity.index[0]).days / 365.25
     turnover = traded / 2 / equity.mean() / years  # one-way, per year
     return Result(p, equity, pd.Series(inv[i0:], index=dates[i0:]), pd.DataFrame(trades, columns=TRADE_COLUMNS),
-                  pd.DataFrame(snap), turnover)
+                  pd.DataFrame(snap), turnover, trims, pd.Series(top_w[i0:], index=dates[i0:]))
 
 
 # ------------------------------------------------------------------ benchmarks
