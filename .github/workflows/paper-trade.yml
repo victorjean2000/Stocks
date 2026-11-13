@@ -1,5 +1,6 @@
 # Paper-trades two strategies, each in its own Alpaca PAPER account (see trading/__init__.py):
-#   momentum  top 10 of the 500 largest US stocks by 6-1 month return, rebalanced after each month end
+#   momentum  10 of the 500 largest US stocks by 6-1 month return, rebalanced after each month end;
+#             a holding is kept while it ranks in the top 30
 #   lqq3      TQQQ (US stand-in for LQQ3) while QQQ closes above its 200-day average, otherwise BIL
 #
 # Runs after each successful data-snapshot build (weekday evenings, after the close), so

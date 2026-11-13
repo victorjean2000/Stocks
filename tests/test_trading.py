@@ -1,12 +1,15 @@
 """Paper trader: order planning, the once-per-decision rebalance, and account safety. No network."""
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import numpy as np
 import pandas as pd
 import pytest
 
-from trading import broker, run as runner
+from trading import broker, run as runner, targets
 from trading.plan import CASH_BUFFER, Holding, plan_orders
-from trading.targets import Target, month_end_decision
+from trading.targets import KEEP_RANK, Target, buffered_top, month_end_decision
 
 
 def test_only_the_paper_api():
@@ -146,3 +149,43 @@ def test_a_strategy_refuses_an_account_holding_another_strategys_orders(monkeypa
     monkeypatch.setitem(runner.TARGETS, "momentum", lambda p: _target({"A": 1.0}))
     res = runner.run(["momentum"])
     assert "it is the lqq3 account" in res[0]["status"] and lqq3_account.submitted == []
+
+
+# ------------------------------------------------------------------ momentum: keep while in the top 30
+
+def test_buffer_keeps_holdings_inside_the_cut_off_and_fills_with_the_best():
+    score = -np.arange(40.0)  # column j ranks #(j + 1)
+    ok = np.ones(40, bool)
+    held = {2, 14, 28, 30, 44}  # ranks 3, 15, 29, 31 and a stock not in the pool any more
+    picks = buffered_top(score, ok, 10, 30, held)
+    assert picks[:3] == [2, 14, 28]  # kept, best first; rank 31 and the missing stock are sold
+    assert picks[3:] == [0, 1, 3, 4, 5, 6, 7]  # the best-ranked stocks not held
+    assert set(buffered_top(score, ok, 10, 30, set(picks))) == set(picks)  # stable once traded
+    assert buffered_top(score, ok, 10, 10, held) == [2] + [0, 1, 3, 4, 5, 6, 7, 8, 9]  # the old rule
+
+
+def test_buffer_ignores_stocks_outside_the_pool_or_without_a_score():
+    score = -np.arange(6.0)
+    score[1] = np.nan
+    ok = np.array([True, True, True, False, True, True])
+    assert buffered_top(score, ok, 3, 4, {3}) == [0, 2, 4]  # 3 left the pool: sold, never kept
+
+
+def test_momentum_target_keeps_slipped_holdings_and_reports_why(monkeypatch):
+    days = pd.bdate_range("2026-10-26", "2026-11-13")
+    names = [f"S{k:02d}" for k in range(40)]
+    r6_1 = np.tile(np.linspace(0.9, -0.3, 40), (len(days), 1))  # S00 best, S39 worst, every day
+    lab = SimpleNamespace(dates=days, m=SimpleNamespace(close=pd.DataFrame(columns=names, dtype=float)),
+                          x={"r6_1": r6_1, "uni": np.ones((len(days), 40), bool),
+                             "mcap_rank": np.ones((len(days), 40))})
+    monkeypatch.setattr("backtest.strategies.build_lab", lambda: lab)
+    monkeypatch.setattr(targets, "sessions", lambda paper: (days, days[-1]))
+    fake = FakePaper(prices={s: 10.0 for s in names})
+    fake.pos = {"S05": 100.0, "S20": 100.0, "S35": 100.0}  # ranks 6, 21 and 36
+    t = targets.momentum_target(fake)
+    assert t.decided == pd.Timestamp("2026-10-30") and t.tag == "momentum-20261030"
+    assert sorted(t.weights) == ["S00", "S01", "S02", "S03", "S04", "S05", "S06", "S07", "S08", "S20"]
+    assert all(w == pytest.approx(0.1) for w in t.weights.values())
+    assert t.info[f"kept (still in the top {KEEP_RANK})"] == ["S05", "S20"]
+    assert t.info[f"sold (below #{KEEP_RANK})"] == {"S35": "#36"}
+    assert t.info["rank and 6-1 month return"]["S20"] == "#21 (+28.5%)"

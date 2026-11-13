@@ -72,9 +72,11 @@ QQQ closes above its 200-day average, else sterling cash, trading at the next Lo
 
 `python -m trading status` / `run --dry-run` / `run` paper-trades two strategies from `backtest/strategies.py`,
 each in its own Alpaca PAPER account (only `paper-api.alpaca.markets` is ever called):
-- `momentum` (keys `ALPACA_MOMENTUM_KEY_ID/_SECRET_KEY`, else the main `ALPACA_API_KEY_ID/_SECRET_KEY`): top 10 of the
+- `momentum` (keys `ALPACA_MOMENTUM_KEY_ID/_SECRET_KEY`, else the main `ALPACA_API_KEY_ID/_SECRET_KEY`): 10 of the
   500 largest by 6-1 month return, 10% each, rebalanced once after each month end (orders tagged
-  `momentum-YYYYMMDD-...`; a decision with filled orders is not traded again).
+  `momentum-YYYYMMDD-...`; a decision with filled orders is not traded again). Since 2026-11-13 a holding is kept while
+  it ranks in the top 30 (`KEEP_RANK` in `trading/targets.py`; before, it was sold on leaving the top 10) and empty
+  places go to the best-ranked stocks not held; `buffered_top` is the same choice as the backtest's `keep_rank=30`.
 - `lqq3` (keys `ALPACA_LQQ3_KEY_ID/_SECRET_KEY`, a second paper account): TQQQ, the US stand-in for London-listed
   LQQ3, while QQQ closes above its 200-day average, otherwise BIL.
 A run cancels its own open orders, then trades the holdings to the target with day market orders (queued for the

@@ -20,8 +20,8 @@ ACCOUNTS = {
     "lqq3": [("ALPACA_LQQ3_KEY_ID", "ALPACA_LQQ3_SECRET_KEY")],
 }
 DESCRIPTION = {
-    "momentum": "Top 10 of the 500 largest US stocks by 6-1 month return, equal weight, rebalanced after each "
-                "month end",
+    "momentum": "10 of the 500 largest US stocks by 6-1 month return, equal weight, rebalanced after each month "
+                "end: a holding is kept while it ranks in the top 30, empty places go to the best-ranked others",
     "lqq3": "TQQQ (3x Nasdaq-100, US stand-in for LQQ3) while QQQ closes above its 200-day average, otherwise BIL "
             "(T-bills)",
 }
