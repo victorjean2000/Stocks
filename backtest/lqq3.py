@@ -69,7 +69,8 @@ def fetch_lqq3(max_age_days: int | None = None) -> pd.DataFrame:
 
 def parse_chart(payload: dict, now: pd.Timestamp | None = None) -> pd.DataFrame:
     """Yahoo chart JSON -> daily bars in pence. A last bar whose close is still blank takes the quoted
-    market price once London has closed that day; a bar of today before the close is left out."""
+    market price once London has closed that day (whenever its last trade was); a bar of today before
+    the close is left out."""
     res = payload["chart"]["result"][0]
     meta = res["meta"]
     if meta.get("currency") != "GBp":
@@ -81,8 +82,11 @@ def parse_chart(payload: dict, now: pd.Timestamp | None = None) -> pd.DataFrame:
     now = (now or pd.Timestamp.now(tz=LONDON)).tz_convert(LONDON)
     mkt = pd.Timestamp(meta.get("regularMarketTime", 0), unit="s", tz="UTC").tz_convert(LONDON)
     last = df.index[-1]
-    if pd.isna(df["close"].iloc[-1]) and mkt.tz_localize(None).normalize() == last and \
-            mkt.hour * 60 + mkt.minute >= 16 * 60 + 30 and meta.get("regularMarketPrice"):
+    # London has closed for the last bar's day: its last quoted price is the close, even when the last trade
+    # came before the 16:30 auction (LQQ3 trades thinly)
+    shut = last < now.tz_localize(None).normalize() or now.hour * 60 + now.minute >= 16 * 60 + 45
+    if pd.isna(df["close"].iloc[-1]) and mkt.tz_localize(None).normalize() == last and shut and \
+            meta.get("regularMarketPrice"):
         df.loc[last, "close"] = float(meta["regularMarketPrice"])
     if now.hour * 60 + now.minute < 16 * 60 + 45:
         df = df[df.index < now.tz_localize(None).normalize()]

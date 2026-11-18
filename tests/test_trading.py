@@ -189,3 +189,29 @@ def test_momentum_target_keeps_slipped_holdings_and_reports_why(monkeypatch):
     assert t.info[f"kept (still in the top {KEEP_RANK})"] == ["S05", "S20"]
     assert t.info[f"sold (below #{KEEP_RANK})"] == {"S35": "#36"}
     assert t.info["rank and 6-1 month return"]["S20"] == "#21 (+28.5%)"
+
+
+# ------------------------------------------------------------------ margin after a gap at the open
+
+def test_keep_matched_sells_back_to_the_cash_buffer_when_on_margin():
+    # the lqq3 account on 18 Nov 2026: the switch out of TQQQ was sized at the weekend price and the sale filled
+    # at Monday's lower open, leaving BIL at 103.7% and cash at -3.7%
+    h = {"BIL": Holding("BIL", "963.6564", 88_232.38, 91.56)}
+    equity, cash = 85_110.65, -3_121.73
+    orders = plan_orders({"BIL": 1.0}, h, equity, cash, full=False, fractionable={"BIL": True})
+    assert [(o.symbol, o.side, o.why) for o in orders] == [("BIL", "sell", "cash below zero")]
+    assert cash + orders[0].value(h, {}) == pytest.approx(CASH_BUFFER * equity, abs=1.0)
+
+
+def test_keep_matched_trims_the_most_overweight_holding_and_ignores_a_tiny_overdraft():
+    h = {"A": Holding("A", "600", 60_000.0, 100.0), "B": Holding("B", "900", 45_000.0, 50.0)}
+    orders = plan_orders({"A": 0.5, "B": 0.5}, h, 100_000.0, -5_000.0, full=False, fractionable={"A": True})
+    assert [(o.symbol, o.side) for o in orders] == [("A", "sell")]  # A is the furthest above its weight
+    assert orders[0].value(h, {}) == pytest.approx(5_500.0)  # the overdraft plus the 0.5% buffer
+    assert plan_orders({"A": 0.5, "B": 0.5}, h, 104_900.0, -100.0, full=False) == []  # under the 0.2% floor
+
+
+def test_whole_shares_round_up_when_raising_cash():
+    h = {"A": Holding("A", "10", 1_050.0, 105.0)}
+    orders = plan_orders({"A": 1.0}, h, 1_000.0, -50.0, full=False)  # not fractionable
+    assert orders[0].qty == "1" and orders[0].why == "cash below zero"  # 1 share raises $105 >= $55 needed

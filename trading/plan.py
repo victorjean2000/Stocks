@@ -40,6 +40,30 @@ def _shares(x: float, fractional: bool) -> str | None:
     return f"{q:.6f}".rstrip("0").rstrip(".")
 
 
+def _shares_up(x: float, held: float, fractional: bool) -> str | None:
+    """At least x shares (rounded up), never more than are held."""
+    q = min(math.ceil(x * 1e6) / 1e6 if fractional else float(math.ceil(x)), held)
+    if q <= 0:
+        return None
+    return f"{q:.6f}".rstrip("0").rstrip(".")
+
+
+def _raise_cash(need: float, weights: dict[str, float], holdings: dict[str, Holding], selling: set[str],
+                fractionable: dict[str, bool], invest: float) -> list[Order]:
+    """Sales raising at least `need` dollars, from the holdings furthest above their target weight."""
+    out = []
+    held = [s for s in weights if s in holdings and s not in selling]
+    for s in sorted(held, key=lambda s: holdings[s].value - weights[s] * invest, reverse=True):
+        if need <= 0:
+            break
+        h = holdings[s]
+        q = _shares_up(min(need, h.value) / h.price, float(h.qty), fractionable.get(s, False))
+        if q:
+            out.append(Order(s, "sell", qty=q, why="cash below zero"))
+            need -= float(q) * h.price
+    return out
+
+
 def _buy(symbol: str, amount: float, fractional: bool, prices: dict[str, float], why: str) -> Order | None:
     if fractional:
         cents = math.floor(amount * 100) / 100
@@ -56,7 +80,9 @@ def plan_orders(weights: dict[str, float], holdings: dict[str, Holding], equity:
                 prices: dict[str, float] | None = None) -> list[Order]:
     """full=True: trade every target to its weight (a rebalance). full=False: keep weights as they
     drifted and only fix the composition: sell what is not a target, buy missing targets at their
-    weight, and invest idle cash once it is above TOP_UP. Never sells more than is held."""
+    weight, invest idle cash once it is above TOP_UP, and sell back to the cash buffer when the
+    account is on margin (orders sized at one close and filled at a lower open, e.g. a switch out of
+    TQQQ after a gap down). Never sells more than is held."""
     fractionable = fractionable or {}
     prices = prices or {}
     invest = equity * (1 - CASH_BUFFER)
@@ -82,8 +108,12 @@ def plan_orders(weights: dict[str, float], holdings: dict[str, Holding], equity:
     if not full:
         sells = sum(o.value(holdings, prices) for o in out if o.side == "sell")
         buys = sum(o.value(holdings, prices) for o in out if o.side == "buy")
-        spare = cash + sells - buys - CASH_BUFFER * equity
-        if spare > max(floor, TOP_UP * equity):
+        after = cash + sells - buys
+        spare = after - CASH_BUFFER * equity
+        if after < -floor:  # on margin: sell the most overweight targets back to the cash buffer
+            selling = {o.symbol for o in out if o.side == "sell"}
+            out += _raise_cash(-spare, weights, holdings, selling, fractionable, invest)
+        elif spare > max(floor, TOP_UP * equity):
             total = sum(weights.values())
             for s, w in weights.items():
                 o = _buy(s, spare * w / total, fractionable.get(s, False), prices, "idle cash")

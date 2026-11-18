@@ -44,3 +44,12 @@ def test_signal_trades_at_the_next_london_session():
     # off at the US close of Fri 28 Aug -> sold at London's open on Tue 1 Sep (Monday is a UK holiday);
     # back on at the US close of 1 Sep -> bought at London's open on 2 Sep
     assert t[1] == {} and t[2] == {0: 1.0}
+
+
+def test_parse_chart_keeps_a_day_whose_last_trade_came_before_the_closing_auction():
+    # the Friday-night run of 13 Nov 2026 reported LQQ3 only through 12 Nov: a thin day can end before 16:30
+    p = _payload(["2026-11-12 08:00", "2026-11-13 08:00"], [101.0, None], "2026-11-13 16:21", 103.0)
+    assert parse_chart(p, now=pd.Timestamp("2026-11-14 00:27", tz="UTC"))["close"].tolist() == [101.0, 103.0]
+    assert parse_chart(p, now=pd.Timestamp("2026-11-13 16:50", tz="UTC"))["close"].tolist() == [101.0, 103.0]
+    early = parse_chart(p, now=pd.Timestamp("2026-11-13 16:40", tz="UTC"))  # auction not over yet: left out
+    assert list(early.index) == [pd.Timestamp("2026-11-12")]

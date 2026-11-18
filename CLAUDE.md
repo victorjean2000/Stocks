@@ -80,7 +80,8 @@ each in its own Alpaca PAPER account (only `paper-api.alpaca.markets` is ever ca
 - `lqq3` (keys `ALPACA_LQQ3_KEY_ID/_SECRET_KEY`, a second paper account): TQQQ, the US stand-in for London-listed
   LQQ3, while QQQ closes above its 200-day average, otherwise BIL.
 A run cancels its own open orders, then trades the holdings to the target with day market orders (queued for the
-next open after the close). For lqq3 it also reports what real LQQ3 did in pounds on the same signals since
+next open after the close). Buys are sized at the last price, so a sale that fills lower at the open (a TQQQ gap) can
+leave cash negative; the next run sells the most overweight holding back to the 0.5% cash buffer (`plan_orders`). For lqq3 it also reports what real LQQ3 did in pounds on the same signals since
 2026-11-05 (`backtest.lqq3.shadow`) and the account's own return in dollars and pounds. It refuses two strategies
 on one account. `.github/workflows/paper-trade.yml` runs it after every successful data-snapshot build; run that
 workflow by hand to start a new account.
