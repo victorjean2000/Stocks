@@ -9,6 +9,11 @@ from Alpaca: QQQ for the signal, SPY for the S&P 500, and FXB (Invesco CurrencyS
 pound/dollar rate and for sterling cash interest (what FXB's pound deposits paid after its 0.40% fee, about
 0% until 2022: conservative next to a money-market fund).
 
+Daily dip trading (python -m backtest.lqq3 dips, writes backtest/LQQ3_DAILY.md): the short-dip rules of
+backtest/daily.py on QQQ (RSI(2), IBS, N-day lows, down streaks; sell on the bounce), traded in LQQ3 at the next
+London open (or the next London close) in pounds, the only 3x fund with approved price data. Compared with the
+S&P 500 in pounds; picked on 2017-21, checked on 2022-26.
+
 Run: python -m backtest.lqq3   (writes backtest/LQQ3.md)
 """
 from __future__ import annotations
@@ -127,22 +132,63 @@ def schedule(on: pd.Series, lse: pd.DatetimeIndex, i0: int) -> dict[int, dict[in
     return out
 
 
-def lqq3_strategy(lq: pd.DataFrame, qqq: pd.Series, cash_r: pd.Series, start: str = START, n: int = 200,
-                  confirm: int = 1, at_close: bool = False) -> tuple[pd.Series, float]:
-    """Equity (GBP, starting at 1) of the trend rule traded in LQQ3 on London sessions from `start`."""
+def _plan(lq: pd.DataFrame, on: pd.Series, start: str, at_close: bool):
+    """LQQ3 fill prices and London-calendar targets for a US-close state (True = hold LQQ3). A target decided at
+    London session k is filled at o[k + 1]: the next open, or with at_close the close of the first London
+    session after the signal."""
     lse = lq.index
     o, c = lq[["open"]].rename(columns={"open": SYMBOL}), lq[["close"]].rename(columns={"close": SYMBOL})
     if at_close:  # fill at the close of the first London session after the signal instead of its open
         o = c.shift(1).fillna(o)
-    book = Book.build(o, c, COST_BPS)
-    on = regime(qqq.dropna(), n, confirm)
     i0 = int(lse.searchsorted(pd.Timestamp(start)))
     targets = schedule(on, lse, i0)
     if at_close:
         targets = {k + 1: v for k, v in targets.items() if k + 1 < len(lse)}
-    cash = cash_r.reindex(lse).fillna(0.0).to_numpy()
-    eq, turnover, _ = run(book, targets, cash, i0, lse)
+    return o, c, i0, targets
+
+
+def lqq3_strategy(lq: pd.DataFrame, qqq: pd.Series, cash_r: pd.Series, start: str = START, n: int = 200,
+                  confirm: int = 1, at_close: bool = False, on: pd.Series | None = None,
+                  cost_bps: float = COST_BPS) -> tuple[pd.Series, float]:
+    """Equity (GBP, starting at 1) of a rule traded in LQQ3 on London sessions from `start`: the trend rule
+    (QQQ above its n-day average) unless `on` gives the state after each US close."""
+    on = regime(qqq.dropna(), n, confirm) if on is None else on
+    o, c, i0, targets = _plan(lq, on, start, at_close)
+    book = Book.build(o, c, cost_bps)
+    cash = cash_r.reindex(lq.index).fillna(0.0).to_numpy()
+    eq, turnover, _ = run(book, targets, cash, i0, lq.index)
     return eq, turnover
+
+
+def lqq3_trades(lq: pd.DataFrame, on: pd.Series, start: str = START, at_close: bool = False,
+                cost_bps: float = COST_BPS) -> pd.DataFrame:
+    """The round trips lqq3_strategy makes for state `on`: London entry and exit sessions, fill prices (pence)
+    and the return after costs on both sides."""
+    o, _, _, targets = _plan(lq, on, start, at_close)
+    px, lse, cost = o.iloc[:, 0].to_numpy(), lq.index, cost_bps / 1e4
+    rows, entry = [], None
+    for k in sorted(targets):
+        if k + 1 >= len(lse):
+            continue
+        if targets[k] and entry is None:
+            entry = k + 1
+        elif not targets[k] and entry is not None:
+            rows.append({"entry": lse[entry], "exit": lse[k + 1], "entry_px": px[entry], "exit_px": px[k + 1],
+                         "ret": (1 - cost) ** 2 * px[k + 1] / px[entry] - 1, "days": k + 1 - entry})
+            entry = None
+    return pd.DataFrame(rows, columns=["entry", "exit", "entry_px", "exit_px", "ret", "days"])
+
+
+def dip_state(bars: pd.DataFrame, entry: tuple, leave: str, trend: bool) -> pd.Series:
+    """Holding (True) or not after each US close: in from a close with a buy signal (backtest.daily rules)
+    until a close with a sell signal. bars: QQQ with columns o, h, l, c on US dates."""
+    from .daily import dip_signals
+    e, x = dip_signals(bars["c"], bars["h"], bars["l"], entry, leave, trend)
+    state, held = [], False
+    for buy, sell in zip(e.to_numpy(), x.to_numpy()):
+        held = (not sell) if held else bool(buy)
+        state.append(held)
+    return pd.Series(state, index=bars.index)
 
 
 def to_gbp(eq_usd: pd.Series, gbpusd: pd.Series) -> pd.Series:
@@ -235,10 +281,179 @@ def report() -> str:
     return "\n".join(lines)
 
 
-def main() -> None:
+# ------------------------------------------------------------------ daily dip trading in LQQ3 (ISA)
+
+ISA_WIN_RATE, ISA_EXCESS = 0.60, 0.15  # the targets: 60%+ winning trades, 15 points a year above the S&P 500
+
+
+def dip_variants() -> list[tuple[str, dict]]:
+    from .daily import ENTRIES, ENTRY_LABEL, EXIT_LABEL, EXITS
+    v = []
+    for entry in ENTRIES:
+        kind, x = entry
+        for leave in EXITS + (["nhigh"] if kind == "low" else []):
+            for trend in (True, False):
+                for at_close in (False, True):
+                    label = (f"QQQ {ENTRY_LABEL[kind].format(x=x)}{', above 200-day' if trend else ''}; "
+                             f"sell {EXIT_LABEL[leave].format(x=x)}; LQQ3 at the London {'close' if at_close else 'open'}")
+                    v.append((label, dict(entry=entry, leave=leave, trend=trend, at_close=at_close)))
+    return v
+
+
+def dip_measures(eq: pd.Series, t: pd.DataFrame, bench: pd.Series) -> dict:
+    split = pd.Timestamp(SPLIT)
+    part = lambda s, early: s[s.index <= split] if early else s[s.index >= split]  # noqa: E731
+    cagr = lambda s: stats(s)["CAGR"]  # noqa: E731
+    years = (eq.index[-1] - eq.index[0]).days / 365.25
+    early, late = t[t["exit"] <= split], t[t["exit"] > split]
+    wins, losses = t.loc[t["ret"] > 0, "ret"], t.loc[t["ret"] <= 0, "ret"]
+    return {"CAGR": cagr(eq), "vs S&P 500": cagr(eq) - cagr(bench),
+            "2017-21": cagr(part(eq, True)), "2017-21 vs S&P": cagr(part(eq, True)) - cagr(part(bench, True)),
+            "2022-26": cagr(part(eq, False)), "2022-26 vs S&P": cagr(part(eq, False)) - cagr(part(bench, False)),
+            "Win rate": (t["ret"] > 0).mean() if len(t) else np.nan,
+            "2017-21 win rate": (early["ret"] > 0).mean() if len(early) else np.nan,
+            "2022-26 win rate": (late["ret"] > 0).mean() if len(late) else np.nan,
+            "Trades per year": len(t) / years, "Avg hold (sessions)": t["days"].mean() if len(t) else np.nan,
+            "Avg win": wins.mean() if len(wins) else np.nan, "Avg loss": losses.mean() if len(losses) else np.nan,
+            "Worst trade": t["ret"].min() if len(t) else np.nan,
+            "Time invested": t["days"].sum() / len(eq) if len(t) else 0.0,
+            "Max drawdown": stats(eq)["Max drawdown"], "Worst year": yearly_returns(eq).min()}
+
+
+def us_version(bars: pd.DataFrame, entry: tuple, leave: str, trend: bool) -> dict:
+    """The same rule in TQQQ at the next US open, in dollars (backtest.daily's engine), for comparison."""
+    from .daily import ETF_COST, dip_signals, run as daily_run
+    q = bars["QQQ"]
+    e, x = dip_signals(q["c"], q["h"], q["l"], entry, leave, trend)
+    dates = q.index
+    i0 = int(dates.searchsorted(pd.Timestamp(START))) - 1
+    cash = bars["BIL"]["c"].ffill().pct_change().fillna(0.0).to_numpy()
+    eq, _, tr = daily_run(bars["TQQQ"][["o"]].to_numpy(), bars["TQQQ"][["c"]].ffill().to_numpy(),
+                          e.to_numpy(bool)[:, None], x.to_numpy(bool)[:, None], np.ones((len(dates), 1)), 1, ETF_COST,
+                          cash, i0)
+    eq = pd.Series(eq, index=dates).dropna()
+    spy = bars["SPY"]["c"].iloc[i0:]
+    return {"US CAGR (TQQQ, $)": stats(eq)["CAGR"], "US vs SPY": stats(eq)["CAGR"] - stats(spy)["CAGR"],
+            "US win rate": np.mean([r[-1] > 0 for r in tr]) if tr else np.nan}
+
+
+def dfmt(df: pd.DataFrame) -> pd.DataFrame:
+    """Percent columns as 12.3% (differences as +1.2%), counts as whole numbers."""
+    out = df.copy().astype(object)
+    for c in df.columns:
+        if c in ("Trades per year", "Avg hold (sessions)"):
+            out[c] = [("" if pd.isna(v) else f"{v:.0f}") for v in df[c]]
+        elif " vs " in f" {c} " or c.startswith("vs") or c.endswith("vs SPY"):
+            out[c] = [("" if pd.isna(v) else f"{v:+.1%}") for v in df[c]]
+        else:
+            out[c] = [("" if pd.isna(v) else f"{v:.1%}") for v in df[c]]
+    return out
+
+
+def dip_report() -> str:
+    from .strategies import etf_bars
+    lq = fetch_lqq3(max_age_days=4)
+    eb = etf_bars()
+    bars = {t: eb[eb["ticker"] == t].set_index("date")[["o", "h", "l", "c"]].astype(float).sort_index()
+            for t in ("QQQ", "SPY", "TQQQ", "BIL")}
+    gbpusd, cash = sterling()
+    rows, curves, trades = {}, {}, {}
+    bench = None
+    for label, kw in dip_variants():
+        on = dip_state(bars["QQQ"], kw["entry"], kw["leave"], kw["trend"])
+        eq, _ = lqq3_strategy(lq, bars["QQQ"]["c"], cash, at_close=kw["at_close"], on=on)
+        if bench is None:
+            spy = bars["SPY"]["c"][bars["SPY"].index >= eq.index[0]]
+            bench = to_gbp(spy / spy.iloc[0], gbpusd)
+        t = lqq3_trades(lq, on, at_close=kw["at_close"])
+        rows[label], curves[label], trades[label] = dip_measures(eq, t, bench), eq, t
+    tbl = pd.DataFrame(rows).T
+    kws = dict(dip_variants())
+    ok = tbl[tbl["2017-21 win rate"] >= ISA_WIN_RATE]
+    pick = ok["2017-21"].idxmax() if len(ok) else None
+    hit = tbl[(tbl["Win rate"] >= ISA_WIN_RATE) & (tbl["vs S&P 500"] >= ISA_EXCESS)]
+    both = hit[(hit["2017-21 vs S&P"] >= ISA_EXCESS) & (hit["2022-26 vs S&P"] >= ISA_EXCESS)]
+    sp = {k: stats(v)["CAGR"] for k, v in (("all", bench), ("a", bench[bench.index <= pd.Timestamp(SPLIT)]),
+                                           ("b", bench[bench.index >= pd.Timestamp(SPLIT)]))}
+    trend_eq, _ = lqq3_strategy(lq, bars["QQQ"]["c"], cash)
+    hold = lq["close"][lq.index >= trend_eq.index[0]]
+    refs = {"LQQ3 when QQQ > 200-day avg (your current ISA rule)": trend_eq, "LQQ3 buy and hold": hold / hold.iloc[0]}
+    main = ["CAGR", "vs S&P 500", "2017-21 vs S&P", "2022-26 vs S&P", "Win rate", "Trades per year",
+            "Avg hold (sessions)", "Max drawdown"]
+    shown = ([pick] if pick else []) + [x for x in both.sort_values("CAGR", ascending=False).index if x != pick]
+    us = pd.DataFrame({k: us_version(bars, kws[k]["entry"], kws[k]["leave"], kws[k]["trend"]) for k in shown[:8]}).T
+    first, last = trend_eq.index[0].date(), trend_eq.index[-1].date()
+    by_fill = tbl.groupby(np.where(tbl.index.str.endswith("close"), "next London close", "next London open")).agg(
+        settings=("CAGR", "size"), median_cagr=("CAGR", "median"), median_vs=("vs S&P 500", "median"),
+        median_late=("2022-26 vs S&P", "median"), median_win=("Win rate", "median"),
+        passed=("vs S&P 500", lambda v: int((v >= ISA_EXCESS).sum())))
+    by_fill.columns = ["Settings", "Median CAGR", "Median vs S&P", "Median 2022-26 vs S&P", "Median win rate",
+                       f"Beat the S&P by {ISA_EXCESS:.0%}+"]
+    for c in ("Median CAGR", "Median win rate"):
+        by_fill[c] = by_fill[c].map(lambda v: f"{v:.1%}")
+    for c in ("Median vs S&P", "Median 2022-26 vs S&P"):
+        by_fill[c] = by_fill[c].map(lambda v: f"{v:+.1%}")
+    lines = [
+        f"# Daily dip trading in LQQ3 for a sterling ISA ({first} to {last})", "",
+        f"Generated by `python -m backtest.lqq3 dips` on {dt.date.today()}. The rules of backtest/daily.py, signalled "
+        "by QQQ at the US close (9pm UK), traded in LQQ3 (3x Nasdaq-100, London, pence) at the next London open, or "
+        f"at the next London close (the US market is then open); {COST_BPS:g} bps a side; idle cash earns sterling "
+        f"interest (FXB). Benchmark: the S&P 500 in pounds, {sp['all']:.1%} a year ({sp['a']:.1%} in 2017-21, "
+        f"{sp['b']:.1%} in 2022-26). Targets: at least {ISA_WIN_RATE:.0%} winning trades and {ISA_EXCESS:.0%} a "
+        "year above the S&P 500.", "",
+        "## Answer", "",
+        f"{len(tbl)} settings tested; {len(hit)} reached both targets over the whole period and {len(both)} in both "
+        "2017-21 and 2022-26. Pick chosen on 2017-21 only (best return among settings that won at least "
+        f"{ISA_WIN_RATE:.0%} of their 2017-21 trades), and the settings that passed in both halves:", "",
+        md(dfmt(tbl.loc[shown, main]), "Setting"), "",
+        "All settings, by when LQQ3 is traded:", "", md(by_fill, "Fill"), "",
+        "The same rules in the US (TQQQ at the next US open, in dollars, against SPY in dollars), to show what "
+        "trading in London costs:", "",
+        md(dfmt(us), "Setting"), "",
+        "For comparison:", "",
+        md(pd.DataFrame({k: {"CAGR": f"{stats(v)['CAGR']:.1%}", "vs S&P 500": f"{stats(v)['CAGR'] - sp['all']:+.1%}",
+                             "Max drawdown": f"{stats(v)['Max drawdown']:.0%}"} for k, v in refs.items()}).T, "Rule"),
+        ""]
+    if pick:
+        detail = ["Win rate", "2017-21 win rate", "2022-26 win rate", "Trades per year", "Avg hold (sessions)",
+                  "Avg win", "Avg loss", "Worst trade", "Time invested", "Max drawdown", "Worst year"]
+        cost_rows = {}
+        for bps in (20.0, 30.0):
+            on = dip_state(bars["QQQ"], kws[pick]["entry"], kws[pick]["leave"], kws[pick]["trend"])
+            eq, _ = lqq3_strategy(lq, bars["QQQ"]["c"], cash, at_close=kws[pick]["at_close"], on=on, cost_bps=bps)
+            t = lqq3_trades(lq, on, at_close=kws[pick]["at_close"], cost_bps=bps)
+            cost_rows[f"{bps:g} bps a side"] = dip_measures(eq, t, bench)
+        years = pd.DataFrame({pick: yearly_returns(curves[pick]), "S&P 500 in pounds": yearly_returns(bench)})
+        worst = trades[pick].sort_values("ret").head(5)
+        lines += ["## The 2017-21 pick in detail", "", md(dfmt(tbl.loc[[pick], detail]).T, "Measure"), "",
+                  "With higher trading costs (spread plus any platform commission, per side):", "",
+                  md(dfmt(pd.DataFrame(cost_rows).T[["CAGR", "vs S&P 500", "2022-26 vs S&P", "Win rate"]]), "Costs"),
+                  "", "Calendar years:", "", md(years.map(lambda v: f"{v:+.1%}"), "Year"), "",
+                  "Worst trades: " + ", ".join(f"{r.entry.date()} to {r.exit.date()} {r.ret:+.1%}"
+                                               for r in worst.itertuples()) + ".", ""]
+    lines += ["## Caveats", "",
+              "- LQQ3 is the only 3x fund tested, because it is the only London price series approved for this "
+              "repository. The US multi-fund result (backtest/DAILY.md) relied on nine funds; most have no London "
+              "equivalent with a long history (WisdomTree's S&P 500 3x, 3LUS / 3USL, does).",
+              f"- {len(tbl)} settings were tried; the whole-period winners are flattered by selection. The pick was "
+              "chosen on 2017-21 only, so its 2022-26 column is the honest test.",
+              "- The London open of a 3x fund can have a wide spread; the close (16:30 UK, with the US market open) "
+              "is usually tighter. Platform commissions come on top; inside an ISA there is no tax on the gains.",
+              "- A 3x fund can lose most of its value in a crash; nothing can be sold before the next London "
+              "session after a US-close signal."]
+    out = "\n".join(lines)
+    out_dir = paths().root / "backtests" / "lqq3"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tbl.to_csv(out_dir / "dip_variants.csv")
+    return out
+
+
+def main(argv: list[str] | None = None) -> None:
+    import sys
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(name)s: %(message)s")
-    text = report()
-    (REPO_ROOT / "backtest" / "LQQ3.md").write_text(text + "\n")
+    dips = "dips" in (sys.argv[1:] if argv is None else argv)
+    text = dip_report() if dips else report()
+    (REPO_ROOT / "backtest" / ("LQQ3_DAILY.md" if dips else "LQQ3.md")).write_text(text + "\n")
     print(text)
 
 

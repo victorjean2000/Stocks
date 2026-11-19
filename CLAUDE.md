@@ -73,7 +73,9 @@ on 2017-21, checked on 2022-26. Results:
 
 `python -m backtest.lqq3` backtests the trend rule on real LQQ3 prices in pounds (the user's ISA version: LQQ3 while
 QQQ closes above its 200-day average, else sterling cash, trading at the next London open). Results:
-`backtest/LQQ3.md`.
+`backtest/LQQ3.md`. `python -m backtest.lqq3 dips` tests the daily dip rules of `backtest.daily` for the ISA: QQQ
+signals at the US close, LQQ3 traded at the next London open or close in pounds, against the S&P 500 in pounds
+(`backtest/LQQ3_DAILY.md`).
 
 ## Paper trading
 

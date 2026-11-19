@@ -53,3 +53,33 @@ def test_parse_chart_keeps_a_day_whose_last_trade_came_before_the_closing_auctio
     assert parse_chart(p, now=pd.Timestamp("2026-11-13 16:50", tz="UTC"))["close"].tolist() == [101.0, 103.0]
     early = parse_chart(p, now=pd.Timestamp("2026-11-13 16:40", tz="UTC"))  # auction not over yet: left out
     assert list(early.index) == [pd.Timestamp("2026-11-12")]
+
+
+def test_dip_state_holds_from_a_buy_close_until_a_sell_close():
+    import numpy as np
+
+    from backtest.lqq3 import dip_state
+    idx = pd.bdate_range("2026-01-05", periods=8)
+    # closes near the day's low (IBS 0.05) on days 1 and 5; close > previous high on days 3 and 6
+    c = pd.Series([100, 99, 99.5, 102, 101, 98, 101.5, 101.0], index=idx)
+    h = pd.Series([101, 100, 100.5, 102.5, 102, 99.9, 102, 101.5], index=idx)
+    l = pd.Series([99, 98.95, 99, 101, 100, 97.9, 100, 100.5], index=idx)
+    bars = pd.DataFrame({"o": c, "h": h, "l": l, "c": c})
+    state = dip_state(bars, ("ibs", 0.1), "high", False)
+    assert state.tolist() == [False, True, True, False, False, True, False, False]
+
+
+def test_lqq3_trades_compound_to_the_strategy_equity():
+    import numpy as np
+    import pytest
+
+    from backtest.lqq3 import lqq3_strategy, lqq3_trades
+    lse = pd.bdate_range("2026-01-05", periods=12)
+    px = pd.Series(np.linspace(100, 130, 12), index=lse)
+    lq = pd.DataFrame({"open": px * 0.99, "close": px})
+    on = pd.Series([False, True, True, False, False, True, True, True, False, False, False, False], index=lse)
+    cash = pd.Series(0.0, index=lse)
+    eq, _ = lqq3_strategy(lq, px, cash, start=str(lse[1].date()), on=on)
+    t = lqq3_trades(lq, on, start=str(lse[1].date()))
+    assert len(t) == 2 and (t["entry"] == [lse[2], lse[6]]).all()  # the US close of day k trades at London k+1
+    assert eq.iloc[-1] / eq.iloc[0] == pytest.approx(float(np.prod(1 + t["ret"])), rel=1e-9)
