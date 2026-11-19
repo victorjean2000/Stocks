@@ -53,17 +53,28 @@ def drop_bad_prints(df: pd.DataFrame, jump: float = 0.15) -> pd.DataFrame:
     return df[~spike.fillna(False)]
 
 
+# London-listed funds whose Yahoo prices the user approved (CLAUDE.md), and when
+YAHOO_APPROVED = {"LQQ3.L": "2026-11-05", "3LUS.L": "2026-11-19"}
+
+
 def fetch_lqq3(max_age_days: int | None = None) -> pd.DataFrame:
-    """Daily LQQ3 prices in pence (open, high, low, close, volume), bad prints removed.
+    """Daily LQQ3 prices in pence (open, high, low, close, volume), bad prints removed."""
+    return fetch_yahoo(SYMBOL, max_age_days)
+
+
+def fetch_yahoo(symbol: str, max_age_days: int | None = None) -> pd.DataFrame:
+    """Daily prices in pence of an approved London fund (YAHOO_APPROVED), bad prints removed.
 
     max_age_days: reuse the cache if its last bar is at most this old (None: always download).
     Today's bar is dropped until London has closed (16:30 plus a margin)."""
-    path = paths().root / "benchmarks" / f"{SYMBOL}.parquet"
+    if symbol not in YAHOO_APPROVED:
+        raise ValueError(f"{symbol}: Yahoo prices are approved only for {sorted(YAHOO_APPROVED)} (see CLAUDE.md)")
+    path = paths().root / "benchmarks" / f"{symbol}.parquet"
     if max_age_days is not None and path.exists():
         df = pd.read_parquet(path)
         if (pd.Timestamp.now(tz=LONDON).tz_localize(None).normalize() - df.index.max()).days <= max_age_days:
             return df
-    r = requests.get(YAHOO_CHART + SYMBOL, params={"period1": 0, "period2": int(time.time()), "interval": "1d"},
+    r = requests.get(YAHOO_CHART + symbol, params={"period1": 0, "period2": int(time.time()), "interval": "1d"},
                      headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
     r.raise_for_status()
     df = parse_chart(r.json())
@@ -79,7 +90,7 @@ def parse_chart(payload: dict, now: pd.Timestamp | None = None) -> pd.DataFrame:
     res = payload["chart"]["result"][0]
     meta = res["meta"]
     if meta.get("currency") != "GBp":
-        raise ValueError(f"{SYMBOL} is quoted in {meta.get('currency')}, expected GBp (pence)")
+        raise ValueError(f"{meta.get('symbol', SYMBOL)} is quoted in {meta.get('currency')}, expected GBp (pence)")
     q = res["indicators"]["quote"][0]
     idx = pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_convert(LONDON).tz_localize(None).normalize()
     df = pd.DataFrame({k: q[k] for k in ("open", "high", "low", "close", "volume")}, index=idx).astype(float)

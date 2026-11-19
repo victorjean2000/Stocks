@@ -77,6 +77,12 @@ QQQ closes above its 200-day average, else sterling cash, trading at the next Lo
 signals at the US close, LQQ3 traded at the next London open or close in pounds, against the S&P 500 in pounds
 (`backtest/LQQ3_DAILY.md`).
 
+`python -m backtest.isa` (about 10 s) builds the ISA strategy from London 3x funds: LQQ3 and 3LUS (real prices in
+pence), alone, half each, or one at a time, on the daily dip rules (QQQ / SPY signals at the US close, next London
+open, sterling cash, S&P 500 in pounds as the benchmark). Whether 3x short funds help is tested on the US funds
+(TQQQ / UPRO long, SQQQ / SPXU short; bars in `data/benchmarks/longshort_daily.parquet`) because London short-fund
+prices are not approved. Results: `backtest/ISA.md`.
+
 ## Paper trading
 
 `python -m trading status` / `run --dry-run` / `run` paper-trades two strategies from `backtest/strategies.py`,
@@ -98,9 +104,11 @@ workflow by hand to start a new account.
 Rules for this repo:
 - Never print, log or commit `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `SEC_USER_AGENT` or
   `STOCKDATA_SNAPSHOT_KEY`. Never commit anything under `data/` (it is git-ignored).
-- Data sources are Alpaca (data/paper-api) and SEC EDGAR only; ask before adding another source. One exception,
-  approved by the user on 2026-11-05: daily LQQ3.L prices from Yahoo Finance, for `backtest/lqq3.py` only (cached in
-  `data/benchmarks/`, never committed). Pound/dollar rates and sterling cash still come from Alpaca (FXB).
+- Data sources are Alpaca (data/paper-api) and SEC EDGAR only; ask before adding another source. One exception:
+  daily prices of London-listed funds the user approved, from Yahoo Finance, listed in `YAHOO_APPROVED` in
+  `backtest/lqq3.py` (LQQ3.L on 2026-11-05; 3LUS.L, WisdomTree S&P 500 3x, on 2026-11-19), fetched only through
+  `fetch_yahoo` for the ISA backtests (`backtest/lqq3.py`, `backtest/isa.py`), cached in `data/benchmarks/`, never
+  committed. Add a fund only when the user names it. Pound/dollar rates and sterling cash still come from Alpaca (FXB).
 - The repository is public: never publish an unencrypted snapshot (Alpaca data cannot be redistributed).
 - Market cap is point-in-time: shares come only from filings filed before the date (one-session lag).
   Never back-fill today's share count into history.
