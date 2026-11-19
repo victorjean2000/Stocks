@@ -14,6 +14,11 @@ Families
                3-day fall first, up to n positions of 1/n of the account each; sell when the close is above the
                5-day average or RSI(2) > 70, optionally after at most 10 sessions; optionally only while SPY closes
                above its 200-day average.
+  Fund dips    the same index-dip rules on nine 3x US equity funds at once, each signalled by its unleveraged
+               ETF (FUNDS: Nasdaq-100, S&P 500, Dow, Russell 2000, tech, semiconductors, financials, biotech,
+               homebuilders; chosen in advance as the 3x US index and sector funds with prices since 2016 and at
+               least $50m traded a day), up to n at a time at 1/n of the account each, most oversold (lowest RSI(2))
+               first; the same rules traded in the unleveraged ETFs for comparison.
 
 Run: python -m backtest.daily (about a minute on 4 cores). Writes backtest/DAILY.md and data/backtests/daily/.
 """
@@ -29,6 +34,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from stockdata import alpaca
 from stockdata.config import REPO_ROOT, paths
 
 from .indicators import rsi
@@ -43,6 +49,12 @@ EXCESS = 0.15  # the target: 15 points a year above SPY
 TRADED = {"QQQ": ["QQQ", "QLD", "TQQQ"], "SPY": ["SPY", "SSO", "UPRO"]}
 ENTRIES = [("rsi", 5), ("rsi", 10), ("rsi", 20), ("ibs", 0.1), ("ibs", 0.2), ("low", 5), ("low", 7), ("down", 3)]
 EXITS = ["sma5", "rsi70", "high"]  # N-day lows also try an N-day high close
+FUNDS = {"TQQQ": "QQQ", "UPRO": "SPY", "UDOW": "DIA", "TNA": "IWM", "TECL": "XLK", "SOXL": "SOXX", "FAS": "XLF",
+         "LABU": "XBI", "NAIL": "ITB"}  # 3x fund -> the unleveraged ETF its signals come from
+# The fund setting with the smallest drawdown among those beating SPY by EXCESS in both halves: chosen after
+# seeing the results (every IBS < 0.1 fund setting passed), so the 2017-21 pick stays the honest test.
+BALANCED = "9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high"
+FUND_ENTRIES = [("ibs", 0.1), ("ibs", 0.2), ("rsi", 10), ("rsi", 20), ("low", 5), ("low", 7)]
 ENTRY_LABEL = {"rsi": "RSI(2) < {x:g}", "ibs": "IBS < {x:g}", "low": "{x}-day low close", "down": "{x} lower closes"}
 EXIT_LABEL = {"sma5": "close > 5-day avg", "rsi70": "RSI(2) > 70", "high": "close > prior high",
               "nhigh": "{x}-day high close"}
@@ -56,6 +68,23 @@ class Data:
     cash_r: np.ndarray
     i0: int  # the close before START: equity is 1 there and the first trade fills at START's open
     x: dict = field(default_factory=dict)  # stock signal frames, computed once
+    fund: dict = field(default_factory=dict)  # "o", "h", "l", "c": the 3x funds and their ETFs (FUNDS)
+
+
+def fund_bars(symbols=tuple(sorted(set(FUNDS) | set(FUNDS.values()))), start: str = "2016-01-01") -> pd.DataFrame:
+    """Adjusted daily bars of the 3x funds and their ETFs from Alpaca, cached in data/benchmarks/ (completed
+    sessions only)."""
+    path = paths().root / "benchmarks" / "funds_daily.parquet"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        df = pd.read_parquet(path)
+        fresh = (pd.Timestamp.today().normalize() - df["date"].max()).days <= 3
+        if fresh and set(symbols) <= set(df["ticker"]):
+            return df
+    df = alpaca.drop_unfinished(alpaca.fetch_bars(alpaca.session(), list(symbols), start, alpaca.safe_end(), "all",
+                                                  "sip"))
+    df.to_parquet(path, index=False)
+    return df
 
 
 def load() -> Data:
@@ -65,6 +94,8 @@ def load() -> Data:
     etf = {k: bars.pivot(index="date", columns="ticker", values=k).reindex(dates).astype(float) for k in "ohlc"}
     cash_r = etf["c"]["BIL"].ffill().pct_change().fillna(0.0).to_numpy()
     d = Data(m, dates, etf, cash_r, int(dates.searchsorted(pd.Timestamp(START))) - 1)
+    fb = fund_bars()
+    d.fund = {k: fb.pivot(index="date", columns="ticker", values=k).reindex(dates).astype(float) for k in "ohlc"}
     c = m.close
     spy = etf["c"]["SPY"]
     d.x.update({"rsi2": rsi(c, 2), "above200": c > m.sma(200), "above5": c > m.sma(5), "fall3": -(c / c.shift(3) - 1),
@@ -127,7 +158,12 @@ def run(O: np.ndarray, C: np.ndarray, enter: np.ndarray, leave: np.ndarray, scor
 # ------------------------------------------------------------------ strategies
 
 def index_signals(d: Data, signal: str, entry: tuple, leave: str, trend: bool) -> tuple[np.ndarray, np.ndarray]:
-    c, h, l = (d.etf[k][signal] for k in ("c", "h", "l"))
+    e, out = dip_signals(*(d.etf[k][signal] for k in ("c", "h", "l")), entry, leave, trend)
+    return e.to_numpy(bool), out.to_numpy(bool)
+
+
+def dip_signals(c, h, l, entry: tuple, leave: str, trend: bool):
+    """Buy and sell flags at each close for one ETF (Series) or several (DataFrame columns)."""
     kind, x = entry
     if kind == "rsi":
         e = rsi(c, 2) < x
@@ -147,7 +183,7 @@ def index_signals(d: Data, signal: str, entry: tuple, leave: str, trend: bool) -
         out = c > h.shift(1)
     else:  # an N-day high close
         out = c >= c.rolling(x).max()
-    return e.fillna(False).to_numpy(bool), out.fillna(False).to_numpy(bool)
+    return e.fillna(False).astype(bool), out.fillna(False).astype(bool)
 
 
 def index_label(signal: str, trade: str, entry: tuple, leave: str, trend: bool) -> str:
@@ -176,6 +212,17 @@ def variants() -> list[tuple[str, str, dict]]:
                                  f"{', max 10 sessions' if hold else ''}{'; SPY above 200-day' if market else ''}")
                         v.append(("Stock dips", label, dict(kind="stocks", x=x, n=n, leave=leave, market=market,
                                                              max_hold=hold)))
+    for lever in (True, False):
+        for entry in FUND_ENTRIES:
+            for leave in EXITS:
+                for trend in (True, False):
+                    for n in ((3, 5, 9) if lever else (9,)):
+                        kind, x = entry
+                        label = (f"{'9 3x funds' if lever else '9 unleveraged ETFs'}, up to {n} at a time: "
+                                 f"{ENTRY_LABEL[kind].format(x=x)}{', above 200-day' if trend else ''}; "
+                                 f"sell {EXIT_LABEL[leave].format(x=x)}")
+                        v.append(("Fund dips" if lever else "Fund dips, unleveraged", label,
+                                  dict(kind="funds", entry=entry, leave=leave, trend=trend, n=n, lever=lever)))
     # references: buy and hold, and the LQQ3 trend rule (daily check, rare trades)
     v += [("Reference", f"Buy and hold {t}", dict(kind="hold", trade=t)) for t in ("QQQ", "TQQQ")]
     v.append(("Reference", "TQQQ while QQQ closes above its 200-day avg (the LQQ3 account's rule)",
@@ -198,6 +245,14 @@ def one_run(d: Data, kind: str, **kw):
             e, x = on, ~on
         ones = np.ones((len(d.dates), 1))
         return run(O, C, e[:, None], x[:, None], ones, 1, ETF_COST, d.cash_r, d.i0)
+    if kind == "funds":
+        traded = list(FUNDS) if kw["lever"] else list(FUNDS.values())
+        sig = {k: d.fund[k][list(FUNDS.values())].set_axis(traded, axis=1) for k in "chl"}
+        e, x = dip_signals(sig["c"], sig["h"], sig["l"], kw["entry"], kw["leave"], kw["trend"])
+        score = -rsi(sig["c"], 2)
+        return run(d.fund["o"][traded].to_numpy(), d.fund["c"][traded].ffill().to_numpy(), e.to_numpy(bool),
+                   x.to_numpy(bool), score.fillna(-np.inf).to_numpy(), kw["n"], kw.get("cost", ETF_COST), d.cash_r,
+                   d.i0)
     m, s = d.m, d.x
     ok = s["pool500"] & s["above200"] & (s["rsi2"] < kw["x"])
     if kw["market"]:
@@ -247,7 +302,12 @@ _D: Data | None = None  # shared with forked worker processes
 def _one(task: tuple):
     family, label, kw = task
     eq, inv, trades = one_run(_D, **kw)
-    names = [kw["trade"]] if "trade" in kw else [str(c) for c in _D.m.close.columns]
+    if "trade" in kw:
+        names = [kw["trade"]]
+    elif kw["kind"] == "funds":
+        names = list(FUNDS) if kw["lever"] else list(FUNDS.values())
+    else:
+        names = [str(c) for c in _D.m.close.columns]
     spy = _D.etf["c"]["SPY"].iloc[_D.i0:]
     row, e, t = evaluate(_D, eq, inv, trades, names, spy)
     return {"Family": family, "Strategy": label} | row, e, t
@@ -271,8 +331,15 @@ def run_all(workers: int | None = None) -> dict:
     out_dir = paths().root / "backtests" / "daily"
     out_dir.mkdir(parents=True, exist_ok=True)
     tbl.to_csv(out_dir / "all_variants.csv")
+    # cost sensitivity of the fund settings shown in detail
+    kws = {label: kw for _, label, kw in tasks}
+    costs = {}
+    for label in {pick(tbl, "Fund dips"), BALANCED} - {None}:
+        for bps in (10.0, 20.0):
+            eq, inv, tr = one_run(_D, **(kws[label] | {"cost": bps}))
+            costs[(label, bps)] = evaluate(_D, eq, inv, tr, list(FUNDS), spy)[0]
     log.info("%d variants in %.0fs", len(tasks), time.time() - t0)
-    return {"data": _D, "table": tbl, "curves": curves, "trades": trades, "spy": spy / spy.iloc[0],
+    return {"data": _D, "table": tbl, "curves": curves, "trades": trades, "spy": spy / spy.iloc[0], "costs": costs,
             "seconds": time.time() - t0}
 
 
@@ -300,6 +367,14 @@ def fmt(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def robustness(f: pd.DataFrame, what: str) -> str:
+    return (f"{what.format(n=len(f))}: median win rate {f['Win rate'].median():.0%}, median "
+            f"{f['vs SPY'].median():+.1%} a year against SPY ({f['2017-21 vs SPY'].median():+.1%} in 2017-21, "
+            f"{f['2022-26 vs SPY'].median():+.1%} in 2022-26), median max drawdown {f['Max drawdown'].median():.0%}; "
+            f"{(f['vs SPY'] >= EXCESS).mean():.0%} beat SPY by {EXCESS:.0%} or more over the whole period and "
+            f"{((f['2017-21 vs SPY'] >= EXCESS) & (f['2022-26 vs SPY'] >= EXCESS)).mean():.0%} in both halves.")
+
+
 def report(out: dict) -> str:
     tbl, curves, trades, spy, d = out["table"], out["curves"], out["trades"], out["spy"], out["data"]
     spy_s = {k: stats(v)["CAGR"] for k, v in (("all", spy), ("a", spy[spy.index <= pd.Timestamp(SPLIT)]),
@@ -307,7 +382,7 @@ def report(out: dict) -> str:
     tested = tbl[tbl["Family"] != "Reference"]
     hit = tested[(tested["Win rate"] >= WIN_RATE) & (tested["vs SPY"] >= EXCESS)]
     hit_both = hit[(hit["2017-21 vs SPY"] >= EXCESS) & (hit["2022-26 vs SPY"] >= EXCESS)]
-    picks = {f: pick(tbl, f) for f in ("Index dips", "Stock dips")}
+    picks = {f: pick(tbl, f) for f in ("Index dips", "Fund dips", "Stock dips")}
     main = ["CAGR", "vs SPY", "2017-21", "2017-21 vs SPY", "2022-26", "2022-26 vs SPY", "Win rate", "Trades per year",
             "Avg hold (sessions)", "Max drawdown"]
     detail = ["Win rate", "2017-21 win rate", "2022-26 win rate", "Trades per year", "Avg hold (sessions)", "Avg trade",
@@ -329,8 +404,10 @@ def report(out: dict) -> str:
         f"{WIN_RATE:.0%} of their 2017-21 trades), then checked on 2022-26:", "",
         md(fmt(tbl.loc[[p for p in picks.values() if p], main]), "Strategy"), "",
     ]
+    lines += [robustness(tested[tested["Family"] == "Fund dips"],
+                         "Across all {n} settings that buy dips in the nine 3x funds at once"), ""]
     lev = tested[tested.index.str.endswith(("trade TQQQ", "trade UPRO"))]
-    lines += [f"Across all {len(lev)} dip settings traded in 3x funds (TQQQ, UPRO): median win rate "
+    lines += [f"Across all {len(lev)} single-index dip settings traded in 3x funds (TQQQ, UPRO): median win rate "
               f"{lev['Win rate'].median():.0%}, median {lev['vs SPY'].median():+.1%} a year against SPY "
               f"({lev['2017-21 vs SPY'].median():+.1%} in 2017-21, {lev['2022-26 vs SPY'].median():+.1%} in 2022-26), "
               f"median max drawdown {lev['Max drawdown'].median():.0%}; "
@@ -343,8 +420,29 @@ def report(out: dict) -> str:
     if len(hit):
         lines += ["Settings that reached both targets over the whole period, best first:", "",
                   md(fmt(hit.sort_values("CAGR", ascending=False).head(15)[main]), "Strategy"), ""]
-    lines += ["## The picks in detail", "", md(fmt(tbl.loc[[p for p in picks.values() if p], detail]).T, "Measure"), ""]
-    years = pd.DataFrame({**{p: yearly(curves[p]) for p in picks.values() if p}, "SPY": yearly(spy)})
+    shown = [p for p in picks.values() if p] + ([BALANCED] if BALANCED in tbl.index else [])
+    lines += ["## The picks in detail", "",
+              f"With '{BALANCED}': the fund setting with the smallest drawdown among those that beat SPY by "
+              f"{EXCESS:.0%} or more in both halves. It was chosen after seeing the results (every IBS < 0.1 fund "
+              "setting passed both halves), so the fund pick chosen on 2017-21 remains the honest test.", "",
+              md(fmt(tbl.loc[shown, detail]).T, "Measure"), ""]
+    if out.get("costs"):
+        rows = {}
+        for (label, bps), r in sorted(out["costs"].items()):
+            rows[f"{label}, {bps:g} bps a side"] = r
+        for label in {k for k, _ in out["costs"]}:
+            rows[f"{label}, 5 bps a side"] = tbl.loc[label].to_dict()
+        ct = pd.DataFrame(rows).T.sort_index()
+        lines += ["Trading costs (5 bps a side is the base case; opening auctions in the smaller funds may cost more):",
+                  "", md(fmt(ct[["CAGR", "vs SPY", "2017-21 vs SPY", "2022-26 vs SPY", "Win rate"]]), "Setting"), ""]
+    for label in [p for p in (picks["Fund dips"], BALANCED) if p in trades]:
+        t = trades[label]
+        g = t.groupby("asset")["ret"]
+        share = (g.sum() / t["ret"].sum()).sort_values(ascending=False)
+        lines += [f"Where '{label}' made its money (share of summed trade returns, trades): " +
+                  ", ".join(f"{a} {v:.0%} ({g.size()[a]})" for a, v in share.items()) + "."]
+    lines += [""]
+    years = pd.DataFrame({**{p: yearly(curves[p]) for p in shown}, "SPY": yearly(spy)})
     lines += ["## Calendar years", "", md(years.map(lambda v: f"{v:+.1%}"), "Year"), ""]
     for f, p in picks.items():
         if not p:
@@ -369,6 +467,9 @@ def report(out: dict) -> str:
               "can be sold before the next open.",
               f"- {len(tested)} settings were tried, so the best whole-period numbers are flattered by selection. The "
               "picks were chosen on 2017-21 only; their 2022-26 columns are the honest test.",
+              "- The nine 3x funds were chosen by today's trading volume among funds that exist today; 3x funds that "
+              "closed are not in the test. Each of them can lose most of its value in a crash (they fell 70-90% in "
+              "March 2020), and 2020's crash and rebound account for a large share of the fund results.",
               "- Survivorship bias: the stock data holds only companies listed today, so stocks that collapsed and "
               "were delisted (e.g. SVB in March 2023) are missing. Buying dips gains more from that bias than momentum "
               "does; the ETF results have no such bias.",

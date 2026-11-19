@@ -6,16 +6,19 @@ Daily: every rule is checked at each close and trades at the next open; position
 
 ## Answer
 
-360 settings tested. 18 reached both targets over the whole period (win rate at least 60% and at least 15% a year above SPY); 2 of them also beat SPY by 15% or more in both 2017-21 and 2022-26.
+504 settings tested. 65 reached both targets over the whole period (win rate at least 60% and at least 15% a year above SPY); 27 of them also beat SPY by 15% or more in both 2017-21 and 2022-26.
 
 Each family's pick, chosen on 2017-21 only (best return among settings that won at least 60% of their 2017-21 trades), then checked on 2022-26:
 
 | Strategy | CAGR | vs SPY | 2017-21 | 2017-21 vs SPY | 2022-26 | 2022-26 vs SPY | Win rate | Trades per year | Avg hold (sessions) | Max drawdown |
 |---|---|---|---|---|---|---|---|---|---|---|
 | QQQ IBS < 0.2; sell close > 5-day avg; trade TQQQ | 47.3% | +32.9% | 86.9% | +68.7% | 15.9% | +5.2% | 69.8% | 29 | 3 | -51.7% |
+| 9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high | 52.8% | +38.5% | 75.7% | +57.6% | 32.8% | +22.2% | 67.5% | 126 | 4 | -69.5% |
 | Largest 500, RSI(2) < 10, 5 positions; sell RSI(2) > 70 | 8.6% | -5.7% | 18.1% | -0.0% | -0.2% | -10.8% | 62.8% | 198 | 6 | -40.6% |
 
-Across all 104 dip settings traded in 3x funds (TQQQ, UPRO): median win rate 71%, median +2.9% a year against SPY (-2.0% in 2017-21, +5.6% in 2022-26), median max drawdown -38%; 14% of them beat SPY by 15% or more in 2022-26. The high win rate holds almost everywhere; beating SPY by 15% needs 3x leverage and depends on the exact setting.
+Across all 108 settings that buy dips in the nine 3x funds at once: median win rate 68%, median +12.6% a year against SPY (+15.6% in 2017-21, +9.2% in 2022-26), median max drawdown -55%; 44% beat SPY by 15% or more over the whole period and 23% in both halves.
+
+Across all 104 single-index dip settings traded in 3x funds (TQQQ, UPRO): median win rate 71%, median +2.9% a year against SPY (-2.0% in 2017-21, +5.6% in 2022-26), median max drawdown -38%; 14% of them beat SPY by 15% or more in 2022-26. The high win rate holds almost everywhere; beating SPY by 15% needs 3x leverage and depends on the exact setting.
 
 Settings that beat SPY by 15% or more in both 2017-21 and 2022-26 with a win rate of at least 60%:
 
@@ -23,68 +26,112 @@ Settings that beat SPY by 15% or more in both 2017-21 and 2022-26 with a win rat
 |---|---|---|---|---|---|---|---|---|---|---|
 | QQQ 5-day low close; sell close > 5-day avg; trade TQQQ | 35.7% | +21.4% | 40.9% | +22.8% | 30.7% | +20.0% | 70.1% | 23 | 3 | -49.8% |
 | SPY IBS < 0.1; sell RSI(2) > 70; trade UPRO | 30.0% | +15.6% | 33.3% | +15.2% | 26.7% | +16.1% | 73.5% | 17 | 4 | -45.3% |
+| 9 3x funds, up to 3 at a time: IBS < 0.1; sell close > 5-day avg | 36.2% | +21.9% | 36.6% | +18.4% | 35.8% | +25.2% | 66.9% | 104 | 3 | -65.9% |
+| 9 3x funds, up to 5 at a time: IBS < 0.1; sell close > 5-day avg | 33.6% | +19.3% | 34.6% | +16.5% | 32.6% | +22.0% | 67.0% | 143 | 3 | -58.4% |
+| 9 3x funds, up to 9 at a time: IBS < 0.1; sell close > 5-day avg | 33.0% | +18.6% | 37.3% | +19.2% | 28.7% | +18.1% | 68.8% | 183 | 3 | -39.0% |
+| 9 3x funds, up to 3 at a time: IBS < 0.1; sell RSI(2) > 70 | 39.4% | +25.1% | 40.4% | +22.2% | 38.4% | +27.8% | 67.8% | 90 | 4 | -66.6% |
+| 9 3x funds, up to 5 at a time: IBS < 0.1; sell RSI(2) > 70 | 38.0% | +23.7% | 40.6% | +22.4% | 35.6% | +24.9% | 69.0% | 126 | 4 | -59.0% |
+| 9 3x funds, up to 9 at a time: IBS < 0.1; sell RSI(2) > 70 | 35.6% | +21.3% | 38.2% | +20.0% | 33.1% | +22.5% | 70.4% | 165 | 4 | -47.2% |
+| 9 3x funds, up to 3 at a time: IBS < 0.1; sell close > prior high | 46.9% | +32.6% | 44.2% | +26.1% | 49.7% | +39.1% | 69.1% | 94 | 4 | -68.8% |
+| 9 3x funds, up to 5 at a time: IBS < 0.1; sell close > prior high | 42.2% | +27.8% | 50.3% | +32.2% | 34.4% | +23.8% | 69.7% | 132 | 4 | -56.5% |
+| 9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high | 37.1% | +22.7% | 45.8% | +27.6% | 28.9% | +18.2% | 71.0% | 171 | 4 | -35.8% |
+| 9 3x funds, up to 9 at a time: IBS < 0.2; sell close > 5-day avg | 36.4% | +22.0% | 47.1% | +28.9% | 26.4% | +15.7% | 67.0% | 286 | 3 | -52.3% |
+| 9 3x funds, up to 9 at a time: IBS < 0.2; sell RSI(2) > 70 | 37.6% | +23.2% | 46.8% | +28.7% | 28.9% | +18.3% | 69.6% | 251 | 4 | -57.2% |
+| 9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high | 52.8% | +38.5% | 75.7% | +57.6% | 32.8% | +22.2% | 67.5% | 126 | 4 | -69.5% |
+| 9 3x funds, up to 5 at a time: IBS < 0.2; sell close > prior high | 44.0% | +29.7% | 63.3% | +45.2% | 26.9% | +16.3% | 68.3% | 186 | 4 | -67.4% |
+| 9 3x funds, up to 9 at a time: IBS < 0.2; sell close > prior high | 40.1% | +25.8% | 55.6% | +37.5% | 26.1% | +15.5% | 69.1% | 258 | 4 | -54.6% |
+| 9 3x funds, up to 3 at a time: RSI(2) < 20; sell close > 5-day avg | 30.2% | +15.9% | 34.1% | +15.9% | 26.4% | +15.8% | 67.8% | 94 | 4 | -72.5% |
+| 9 3x funds, up to 3 at a time: RSI(2) < 20; sell RSI(2) > 70 | 35.9% | +21.6% | 37.0% | +18.8% | 34.8% | +24.2% | 68.4% | 82 | 5 | -78.0% |
+| 9 3x funds, up to 3 at a time: RSI(2) < 20; sell close > prior high | 38.8% | +24.4% | 48.0% | +29.9% | 30.1% | +19.4% | 68.7% | 95 | 4 | -66.3% |
+| 9 3x funds, up to 5 at a time: RSI(2) < 20; sell close > prior high | 31.8% | +17.5% | 37.1% | +19.0% | 26.7% | +16.0% | 68.0% | 133 | 4 | -60.3% |
+| 9 3x funds, up to 3 at a time: 5-day low close; sell close > 5-day avg | 34.0% | +19.7% | 35.1% | +16.9% | 33.0% | +22.4% | 67.2% | 110 | 4 | -74.4% |
+| 9 3x funds, up to 5 at a time: 5-day low close; sell close > 5-day avg | 33.4% | +19.1% | 39.1% | +20.9% | 27.9% | +17.3% | 67.9% | 157 | 4 | -66.4% |
+| 9 3x funds, up to 3 at a time: 5-day low close; sell RSI(2) > 70 | 36.1% | +21.7% | 39.5% | +21.3% | 32.7% | +22.1% | 69.1% | 93 | 5 | -78.8% |
+| 9 3x funds, up to 5 at a time: 5-day low close; sell RSI(2) > 70 | 37.1% | +22.8% | 39.7% | +21.6% | 34.5% | +23.9% | 69.5% | 136 | 5 | -68.6% |
+| 9 3x funds, up to 3 at a time: 5-day low close; sell close > prior high | 39.8% | +25.4% | 50.0% | +31.8% | 30.2% | +19.6% | 69.3% | 109 | 4 | -71.5% |
+| 9 3x funds, up to 5 at a time: 5-day low close; sell close > prior high | 43.7% | +29.4% | 52.8% | +34.7% | 35.1% | +24.5% | 69.7% | 156 | 4 | -58.4% |
+| 9 3x funds, up to 9 at a time: 5-day low close; sell close > prior high | 31.8% | +17.4% | 36.8% | +18.6% | 26.9% | +16.3% | 68.8% | 207 | 4 | -53.6% |
 
 Settings that reached both targets over the whole period, best first:
 
 | Strategy | CAGR | vs SPY | 2017-21 | 2017-21 vs SPY | 2022-26 | 2022-26 vs SPY | Win rate | Trades per year | Avg hold (sessions) | Max drawdown |
 |---|---|---|---|---|---|---|---|---|---|---|
+| 9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high | 52.8% | +38.5% | 75.7% | +57.6% | 32.8% | +22.2% | 67.5% | 126 | 4 | -69.5% |
 | QQQ IBS < 0.2; sell close > 5-day avg; trade TQQQ | 47.3% | +32.9% | 86.9% | +68.7% | 15.9% | +5.2% | 69.8% | 29 | 3 | -51.7% |
+| 9 3x funds, up to 3 at a time: IBS < 0.1; sell close > prior high | 46.9% | +32.6% | 44.2% | +26.1% | 49.7% | +39.1% | 69.1% | 94 | 4 | -68.8% |
 | QQQ IBS < 0.2, above 200-day; sell close > 5-day avg; trade TQQQ | 44.3% | +30.0% | 86.4% | +68.3% | 11.5% | +0.9% | 70.8% | 24 | 3 | -34.2% |
+| 9 3x funds, up to 5 at a time: IBS < 0.2; sell close > prior high | 44.0% | +29.7% | 63.3% | +45.2% | 26.9% | +16.3% | 68.3% | 186 | 4 | -67.4% |
+| 9 3x funds, up to 5 at a time: 5-day low close; sell close > prior high | 43.7% | +29.4% | 52.8% | +34.7% | 35.1% | +24.5% | 69.7% | 156 | 4 | -58.4% |
+| 9 3x funds, up to 5 at a time: IBS < 0.1; sell close > prior high | 42.2% | +27.8% | 50.3% | +32.2% | 34.4% | +23.8% | 69.7% | 132 | 4 | -56.5% |
+| 9 3x funds, up to 3 at a time: IBS < 0.2; sell RSI(2) > 70 | 40.2% | +25.9% | 59.2% | +41.0% | 23.4% | +12.8% | 68.4% | 123 | 4 | -71.3% |
+| 9 3x funds, up to 9 at a time: IBS < 0.2; sell close > prior high | 40.1% | +25.8% | 55.6% | +37.5% | 26.1% | +15.5% | 69.1% | 258 | 4 | -54.6% |
+| 9 3x funds, up to 3 at a time: 5-day low close; sell close > prior high | 39.8% | +25.4% | 50.0% | +31.8% | 30.2% | +19.6% | 69.3% | 109 | 4 | -71.5% |
+| 9 3x funds, up to 3 at a time: IBS < 0.1; sell RSI(2) > 70 | 39.4% | +25.1% | 40.4% | +22.2% | 38.4% | +27.8% | 67.8% | 90 | 4 | -66.6% |
+| 9 3x funds, up to 3 at a time: RSI(2) < 20; sell close > prior high | 38.8% | +24.4% | 48.0% | +29.9% | 30.1% | +19.4% | 68.7% | 95 | 4 | -66.3% |
 | QQQ IBS < 0.2; sell RSI(2) > 70; trade TQQQ | 38.4% | +24.1% | 78.7% | +60.5% | 7.0% | -3.6% | 70.2% | 26 | 4 | -51.7% |
 | QQQ IBS < 0.2, above 200-day; sell RSI(2) > 70; trade TQQQ | 38.2% | +23.9% | 84.0% | +65.8% | 3.7% | -7.0% | 71.6% | 21 | 4 | -32.1% |
-| QQQ IBS < 0.1; sell close > 5-day avg; trade TQQQ | 37.9% | +23.5% | 58.7% | +40.6% | 19.6% | +9.0% | 72.6% | 19 | 3 | -38.0% |
-| QQQ IBS < 0.1; sell RSI(2) > 70; trade TQQQ | 36.7% | +22.4% | 59.3% | +41.1% | 17.3% | +6.6% | 71.0% | 17 | 4 | -42.8% |
-| QQQ 5-day low close; sell close > 5-day avg; trade TQQQ | 35.7% | +21.4% | 40.9% | +22.8% | 30.7% | +20.0% | 70.1% | 23 | 3 | -49.8% |
-| QQQ IBS < 0.1, above 200-day; sell RSI(2) > 70; trade TQQQ | 35.3% | +21.0% | 65.8% | +47.6% | 10.3% | -0.3% | 72.5% | 14 | 4 | -31.6% |
-| QQQ IBS < 0.1, above 200-day; sell close > 5-day avg; trade TQQQ | 34.2% | +19.8% | 60.1% | +41.9% | 12.3% | +1.7% | 73.5% | 15 | 3 | -30.1% |
-| QQQ IBS < 0.1, above 200-day; sell close > prior high; trade TQQQ | 33.8% | +19.4% | 58.1% | +39.9% | 13.1% | +2.5% | 75.4% | 14 | 4 | -35.1% |
-| QQQ 5-day low close; sell close > prior high; trade TQQQ | 33.1% | +18.8% | 43.9% | +25.7% | 23.1% | +12.4% | 70.9% | 22 | 4 | -45.8% |
-| QQQ IBS < 0.2; sell close > 5-day avg; trade QLD | 33.0% | +18.6% | 55.7% | +37.5% | 13.5% | +2.9% | 69.4% | 29 | 3 | -35.7% |
-| QQQ IBS < 0.1; sell close > prior high; trade TQQQ | 32.4% | +18.0% | 51.5% | +33.3% | 15.6% | +4.9% | 73.7% | 17 | 4 | -42.6% |
-| SPY IBS < 0.1; sell close > 5-day avg; trade UPRO | 31.9% | +17.5% | 39.2% | +21.0% | 24.9% | +14.3% | 70.6% | 18 | 3 | -32.1% |
-| QQQ RSI(2) < 20, above 200-day; sell RSI(2) > 70; trade TQQQ | 31.5% | +17.1% | 40.6% | +22.4% | 22.9% | +12.2% | 76.4% | 15 | 4 | -32.6% |
+| 9 3x funds, up to 5 at a time: IBS < 0.2, above 200-day; sell close > prior high | 38.1% | +23.8% | 62.0% | +43.8% | 17.6% | +7.0% | 69.7% | 151 | 4 | -46.0% |
 
 ## The picks in detail
 
-| Measure | QQQ IBS < 0.2; sell close > 5-day avg; trade TQQQ | Largest 500, RSI(2) < 10, 5 positions; sell RSI(2) > 70 |
-|---|---|---|
-| Win rate | 69.8% | 62.8% |
-| 2017-21 win rate | 79.4% | 65.7% |
-| 2022-26 win rate | 61.2% | 59.7% |
-| Trades per year | 29 | 198 |
-| Avg hold (sessions) | 3 | 6 |
-| Avg trade | 1.5% | 0.3% |
-| Avg win | 4.4% | 3.1% |
-| Avg loss | -5.2% | -4.6% |
-| Worst trade | -35.0% | -46.4% |
-| Profit factor | 1.94 | 1.16 |
-| Time invested | 32.3% | 94.0% |
-| Max drawdown | -51.7% | -40.6% |
-| Sharpe | 1.05 | 0.44 |
-| Worst year | -12.9% | -22.2% |
+With '9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high': the fund setting with the smallest drawdown among those that beat SPY by 15% or more in both halves. It was chosen after seeing the results (every IBS < 0.1 fund setting passed both halves), so the fund pick chosen on 2017-21 remains the honest test.
+
+| Measure | QQQ IBS < 0.2; sell close > 5-day avg; trade TQQQ | 9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high | Largest 500, RSI(2) < 10, 5 positions; sell RSI(2) > 70 | 9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high |
+|---|---|---|---|---|
+| Win rate | 69.8% | 67.5% | 62.8% | 71.0% |
+| 2017-21 win rate | 79.4% | 71.7% | 65.7% | 74.8% |
+| 2022-26 win rate | 61.2% | 63.2% | 59.7% | 67.6% |
+| Trades per year | 29 | 126 | 198 | 171 |
+| Avg hold (sessions) | 3 | 4 | 6 | 4 |
+| Avg trade | 1.5% | 1.3% | 0.3% | 1.8% |
+| Avg win | 4.4% | 5.4% | 3.1% | 5.7% |
+| Avg loss | -5.2% | -7.2% | -4.6% | -7.7% |
+| Worst trade | -35.0% | -70.4% | -46.4% | -70.4% |
+| Profit factor | 1.94 | 1.54 | 1.16 | 1.81 |
+| Time invested | 32.3% | 63.4% | 94.0% | 27.9% |
+| Max drawdown | -51.7% | -69.5% | -40.6% | -35.8% |
+| Sharpe | 1.05 | 1.04 | 0.44 | 1.15 |
+| Worst year | -12.9% | -14.3% | -22.2% | -18.5% |
+
+Trading costs (5 bps a side is the base case; opening auctions in the smaller funds may cost more):
+
+| Setting | CAGR | vs SPY | 2017-21 vs SPY | 2022-26 vs SPY | Win rate |
+|---|---|---|---|---|---|
+| 9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high, 10 bps a side | 46.5% | +32.2% | +50.2% | +16.7% | 66.6% |
+| 9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high, 20 bps a side | 34.7% | +20.3% | +36.4% | +6.6% | 65.0% |
+| 9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high, 5 bps a side | 52.8% | +38.5% | +57.6% | +22.2% | 67.5% |
+| 9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high, 10 bps a side | 34.5% | +20.2% | +25.0% | +15.7% | 70.3% |
+| 9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high, 20 bps a side | 29.5% | +15.1% | +19.8% | +10.8% | 68.9% |
+| 9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high, 5 bps a side | 37.1% | +22.7% | +27.6% | +18.2% | 71.0% |
+
+Where '9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high' made its money (share of summed trade returns, trades): LABU 27% (198), SOXL 19% (146), TECL 11% (105), TQQQ 11% (106), TNA 9% (138), UDOW 8% (126), NAIL 8% (196), FAS 4% (156), UPRO 2% (65).
+Where '9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high' made its money (share of summed trade returns, trades): SOXL 20% (199), LABU 15% (208), TECL 11% (182), NAIL 11% (208), TQQQ 10% (171), FAS 9% (177), TNA 9% (179), UPRO 8% (170), UDOW 7% (177).
 
 ## Calendar years
 
-| Year | QQQ IBS < 0.2; sell close > 5-day avg; trade TQQQ | Largest 500, RSI(2) < 10, 5 positions; sell RSI(2) > 70 | SPY |
-|---|---|---|---|
-| 2017 | +45.2% | +20.6% | +19.6% |
-| 2018 | +15.7% | -8.1% | -5.0% |
-| 2019 | +55.1% | +15.2% | +31.1% |
-| 2020 | +278.6% | +46.5% | +18.5% |
-| 2021 | +118.8% | +21.0% | +28.6% |
-| 2022 | -5.1% | -22.2% | -18.2% |
-| 2023 | +68.5% | +38.7% | +26.2% |
-| 2024 | +27.1% | +3.3% | +24.9% |
-| 2025 | -12.9% | +12.7% | +17.7% |
-| 2026 | +16.1% | -21.1% | +7.9% |
+| Year | QQQ IBS < 0.2; sell close > 5-day avg; trade TQQQ | 9 3x funds, up to 3 at a time: IBS < 0.2; sell close > prior high | Largest 500, RSI(2) < 10, 5 positions; sell RSI(2) > 70 | 9 3x funds, up to 9 at a time: IBS < 0.1; sell close > prior high | SPY |
+|---|---|---|---|---|---|
+| 2017 | +45.2% | +58.3% | +20.6% | +27.2% | +19.6% |
+| 2018 | +15.7% | -5.4% | -8.1% | -18.5% | -5.0% |
+| 2019 | +55.1% | +71.8% | +15.2% | +46.4% | +31.1% |
+| 2020 | +278.6% | +217.8% | +46.5% | +140.7% | +18.5% |
+| 2021 | +118.8% | +95.2% | +21.0% | +74.4% | +28.6% |
+| 2022 | -5.1% | +68.4% | -22.2% | +21.3% | -18.2% |
+| 2023 | +68.5% | +56.5% | +38.7% | +33.1% | +26.2% |
+| 2024 | +27.1% | -14.3% | +3.3% | +28.8% | +24.9% |
+| 2025 | -12.9% | +14.8% | +12.7% | +33.2% | +17.7% |
+| 2026 | +16.1% | +54.0% | -21.1% | +24.6% | +7.9% |
 
 Worst trades, index dips pick: TQQQ 2020-03-10 to 2020-03-25 -35.0%, TQQQ 2022-06-09 to 2022-06-22 -26.1%, TQQQ 2025-02-24 to 2025-03-06 -19.1%, TQQQ 2022-04-21 to 2022-04-29 -18.7%, TQQQ 2022-09-14 to 2022-09-29 -18.5%.
+Worst trades, fund dips pick: NAIL 2020-03-12 to 2020-03-20 -70.4%, SOXL 2026-10-05 to 2026-10-22 -44.0%, NAIL 2024-11-29 to 2024-12-26 -43.0%, NAIL 2026-02-20 to 2026-03-17 -38.1%, FAS 2020-03-04 to 2020-03-11 -35.5%.
 Worst trades, stock dips pick: VNO 2020-02-21 to 2020-03-25 -46.4%, AFRM 2026-01-13 to 2026-02-27 -36.2%, HUBS 2021-12-30 to 2022-01-25 -31.4%, SRPT 2019-08-09 to 2019-09-11 -31.0%, DECK 2025-02-04 to 2025-03-25 -28.4%.
 
 ## Families
 
 | Family | Settings | Win rate >= 60% | Median CAGR | Best CAGR | Median win rate |
 |---|---|---|---|---|---|
+| Fund dips | 108 | 108 | 26.9% | 52.8% | 68% |
+| Fund dips, unleveraged | 36 | 36 | 9.5% | 15.1% | 69% |
 | Index dips | 312 | 312 | 11.2% | 47.3% | 71% |
 | Stock dips | 48 | 44 | 4.7% | 11.2% | 61% |
 
@@ -99,6 +146,7 @@ For comparison (the trend rule trades rarely and wins less than half its trades,
 ## Caveats
 
 - A high win rate is not low risk: the average loss is larger than the average win, and the worst trades come in fast sell-offs. With 3x funds a dip that keeps falling costs three times as much; nothing can be sold before the next open.
-- 360 settings were tried, so the best whole-period numbers are flattered by selection. The picks were chosen on 2017-21 only; their 2022-26 columns are the honest test.
+- 504 settings were tried, so the best whole-period numbers are flattered by selection. The picks were chosen on 2017-21 only; their 2022-26 columns are the honest test.
+- The nine 3x funds were chosen by today's trading volume among funds that exist today; 3x funds that closed are not in the test. Each of them can lose most of its value in a crash (they fell 70-90% in March 2020), and 2020's crash and rebound account for a large share of the fund results.
 - Survivorship bias: the stock data holds only companies listed today, so stocks that collapsed and were delisted (e.g. SVB in March 2023) are missing. Buying dips gains more from that bias than momentum does; the ETF results have no such bias.
 - Fills at the next open with fixed costs; no slippage model, no taxes. Ten years, mostly a rising market led by US tech, which suits buying dips in the Nasdaq.

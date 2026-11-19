@@ -64,9 +64,11 @@ month end; the result depends a lot on the day) and is judged on 2017-21, checke
 `backtest/MOMENTUM_REFINE.md`. The simulator options it uses (`take_profit`, `trail_stop`, `stop_loss`,
 `extension_exit`, `keep_rank`, `reweight`, `offset`, `cash_yield`) are `Params` fields in `backtest/momentum_trend.py`.
 
-`python -m backtest.daily` (about 10 s) tests daily high-win-rate rules: buying short dips in QQQ / SPY (traded 1x,
-2x or 3x: QLD, TQQQ, SSO, UPRO) on RSI(2), IBS, N-day lows or down streaks, and in the 500 largest stocks; signals at
-the close, fills at the next open, win rate after costs; picked on 2017-21, checked on 2022-26. Results:
+`python -m backtest.daily` (about 15 s) tests daily high-win-rate rules: buying short dips in QQQ / SPY (traded 1x,
+2x or 3x: QLD, TQQQ, SSO, UPRO) on RSI(2), IBS, N-day lows or down streaks, in nine 3x index and sector funds at once
+(`FUNDS`, signalled by their unleveraged ETFs, bars cached in `data/benchmarks/funds_daily.parquet`), and in the 500
+largest stocks; signals at the close, fills at the next open, win rate after costs (with 10 / 20 bps checks); picked
+on 2017-21, checked on 2022-26. Results:
 `backtest/DAILY.md`. Daily bars of a session still trading are never cached (`stockdata.alpaca.drop_unfinished`).
 
 `python -m backtest.lqq3` backtests the trend rule on real LQQ3 prices in pounds (the user's ISA version: LQQ3 while

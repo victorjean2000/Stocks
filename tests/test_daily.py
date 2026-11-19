@@ -67,3 +67,20 @@ def test_todays_bar_is_dropped_until_its_close_is_final():
     assert len(drop_unfinished(bars, now=at("2026-11-19 15:30"))) == 1  # 10:30 in New York: session running
     assert len(drop_unfinished(bars, now=at("2026-11-19 21:15"))) == 1  # 16:15: SIP closes not final yet
     assert len(drop_unfinished(bars, now=at("2026-11-19 21:17"))) == 2
+
+
+def test_fund_signals_match_the_single_index_signals_and_labels_are_unique():
+    import pandas as pd
+
+    from backtest.daily import BALANCED, ENTRIES, EXITS, dip_signals, variants
+    rng = np.random.default_rng(3)
+    idx = pd.bdate_range("2020-01-01", periods=300)
+    c = pd.DataFrame(100 * np.exp(np.cumsum(rng.normal(0, 0.01, (300, 2)), axis=0)), index=idx, columns=["A", "B"])
+    h, l = c * 1.01, c * 0.99
+    for entry in ENTRIES:
+        for leave in EXITS:
+            e, x = dip_signals(c, h, l, entry, leave, True)
+            e1, x1 = dip_signals(c["B"], h["B"], l["B"], entry, leave, True)
+            assert e["B"].equals(e1) and x["B"].equals(x1)
+    labels = [label for _, label, _ in variants()]
+    assert len(labels) == len(set(labels)) and BALANCED in labels
