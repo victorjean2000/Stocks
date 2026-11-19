@@ -54,7 +54,11 @@ def drop_bad_prints(df: pd.DataFrame, jump: float = 0.15) -> pd.DataFrame:
 
 
 # London-listed funds whose Yahoo prices the user approved (CLAUDE.md), and when
-YAHOO_APPROVED = {"LQQ3.L": "2026-11-05", "3LUS.L": "2026-11-19"}
+YAHOO_APPROVED = {"LQQ3.L": "2026-11-05", "3LUS.L": "2026-11-19",
+                  # WisdomTree and Leverage Shares funds in the user's ISA (approved 2026-11-19: "check the funds
+                  # available in ISA from those two companies ... dont just only use the funds that I mention")
+                  **{f"{t}.L": "2026-11-19" for t in ("3UKL", "3LDE", "3LEU", "3LSI", "3LOI", "3ULS", "3UKS",
+                                                       "3SMH", "3XLF", "3XLE", "3GDX")}}
 
 
 def fetch_lqq3(max_age_days: int | None = None) -> pd.DataFrame:

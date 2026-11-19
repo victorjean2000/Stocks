@@ -39,3 +39,21 @@ def test_short_rules_mirror_the_dip_rules_below_the_200_day_average():
     assert (x == (c <= c.rolling(5).min())).all()
     mirror_e, _ = dip_signals(-c, -l, -h, ("low", 5), "sma5", False)
     assert ((e & (c < c.rolling(200).mean())) == (mirror_e & (c < c.rolling(200).mean()))).all()
+
+
+def test_a_consolidation_is_undone_and_real_moves_are_kept():
+    from backtest.isa import adjust_actions
+    idx = pd.bdate_range("2024-01-01", periods=60)
+    under = pd.Series(100 * np.exp(np.cumsum(np.random.default_rng(1).normal(0, 0.01, 60))), index=idx)
+    fund = (1 + 3 * under.pct_change().fillna(0)).cumprod() * 2.0
+    raw = fund.copy()
+    raw.iloc[30:] *= 75  # a 1:75 consolidation on day 30, left in the prices
+    df = pd.DataFrame({"open": raw, "high": raw, "low": raw, "close": raw})
+    fixed, fixes = adjust_actions(df, under, 3)
+    assert [f[2] for f in fixes] == [75.0]
+    assert np.allclose(fixed["close"], fund * 75)  # earlier prices scaled up to the new basis
+    split = df.copy()
+    split.iloc[30:] = (fund.iloc[30:] / 20).to_frame().to_numpy().repeat(4, axis=1)  # a 1:20 split instead
+    split.iloc[:30] = fund.iloc[:30].to_frame().to_numpy().repeat(4, axis=1)
+    fixed, fixes = adjust_actions(split, under, 3)
+    assert [f[2] for f in fixes] == [0.05] and np.allclose(fixed["close"], fund / 20)

@@ -77,9 +77,11 @@ QQQ closes above its 200-day average, else sterling cash, trading at the next Lo
 signals at the US close, LQQ3 traded at the next London open or close in pounds, against the S&P 500 in pounds
 (`backtest/LQQ3_DAILY.md`).
 
-`python -m backtest.isa` (about 10 s) builds the ISA strategy from London 3x funds: LQQ3 and 3LUS (real prices in
-pence), alone, half each, or one at a time, on the daily dip rules (QQQ / SPY signals at the US close, next London
-open, sterling cash, S&P 500 in pounds as the benchmark). Whether 3x short funds help is tested on the US funds
+`python -m backtest.isa` (about 25 s) builds the ISA strategy from the London 3x funds the user can hold (WisdomTree
+LQQ3, 3LUS, 3UKL, 3LDE, 3LEU, 3UKS; Leverage Shares 3SMH, 3GDX from April 2024; real prices in pence, splits and
+consolidations undone by `adjust_actions`) on the daily dip rules: US-ETF signals at the US close (own London prices
+for the FTSE, DAX and EURO STOXX), next London open, sterling cash, S&P 500 in pounds as the benchmark. `RECOMMENDED`
+in `backtest/isa.py` is the current answer (LQQ3 + 3LUS half each, IBS < 0.1, sell above the 5-day average). Whether 3x short funds help is tested on the US funds
 (TQQQ / UPRO long, SQQQ / SPXU short; bars in `data/benchmarks/longshort_daily.parquet`) because London short-fund
 prices are not approved. Results: `backtest/ISA.md`.
 
@@ -106,7 +108,8 @@ Rules for this repo:
   `STOCKDATA_SNAPSHOT_KEY`. Never commit anything under `data/` (it is git-ignored).
 - Data sources are Alpaca (data/paper-api) and SEC EDGAR only; ask before adding another source. One exception:
   daily prices of London-listed funds the user approved, from Yahoo Finance, listed in `YAHOO_APPROVED` in
-  `backtest/lqq3.py` (LQQ3.L on 2026-11-05; 3LUS.L, WisdomTree S&P 500 3x, on 2026-11-19), fetched only through
+  `backtest/lqq3.py` (LQQ3.L on 2026-11-05; on 2026-11-19 3LUS.L and the WisdomTree / Leverage Shares 3x funds the user
+  can hold in their ISA: 3UKL, 3LDE, 3LEU, 3LSI, 3LOI, 3ULS, 3UKS, 3SMH, 3XLF, 3XLE, 3GDX), fetched only through
   `fetch_yahoo` for the ISA backtests (`backtest/lqq3.py`, `backtest/isa.py`), cached in `data/benchmarks/`, never
   committed. Add a fund only when the user names it. Pound/dollar rates and sterling cash still come from Alpaca (FXB).
 - The repository is public: never publish an unencrypted snapshot (Alpaca data cannot be redistributed).

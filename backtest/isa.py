@@ -1,4 +1,11 @@
-"""Daily strategies for a sterling ISA, with London-listed 3x funds.
+"""Daily strategies for a sterling ISA, with London-listed 3x funds from WisdomTree and Leverage Shares.
+
+UNIVERSE: the 3x funds in the user's ISA with usable London prices (Yahoo, approved; splits and consolidations undone
+by adjust_actions): WisdomTree LQQ3 (Nasdaq-100), 3LUS (S&P 500), 3UKL (FTSE 100), 3LDE (DAX), 3LEU (EURO STOXX 50),
+3UKS (FTSE 100 -3x); Leverage Shares 3SMH (semiconductors) and 3GDX (gold miners), from April 2024 (Yahoo has no
+prices from December 2022). Left out with reasons: EXCLUDED. The dip rules run on fund sets (US indices; plus sectors;
+plus European indices; plus the FTSE short) with one place per fund or up to 2 / 3 at a time. RECOMMENDED is the
+answer; PREREGISTERED is the US nine-fund rule, fixed before any London price was seen.
 
 Funds, real London prices in pence (Yahoo, approved by the user; see YAHOO_APPROVED in backtest/lqq3.py): LQQ3
 (WisdomTree NASDAQ 100 3x Daily Leveraged) and 3LUS (WisdomTree S&P 500 3x Daily Leveraged). Their signals come from
@@ -37,8 +44,9 @@ from .strategies import SPLIT, START, yearly_returns
 log = logging.getLogger(__name__)
 
 FUNDS = {"LQQ3.L": "QQQ", "3LUS.L": "SPY"}  # London 3x fund (pence) -> the US ETF whose close gives its signal
-NAMES = {"LQQ3.L": "LQQ3", "3LUS.L": "3LUS"}
-US = ["QQQ", "SPY", "TQQQ", "UPRO", "SQQQ", "SPXU", "BIL"]
+NAMES = {"LQQ3.L": "LQQ3", "3LUS.L": "3LUS", "3UKL.L": "3UKL", "3LDE.L": "3LDE", "3LEU.L": "3LEU",
+         "3SMH.L": "3SMH", "3XLF.L": "3XLF", "3XLE.L": "3XLE", "3GDX.L": "3GDX", "3ULS.L": "3ULS", "3UKS.L": "3UKS"}
+US = ["QQQ", "SPY", "TQQQ", "UPRO", "SQQQ", "SPXU", "BIL", "SMH", "XLF", "XLE", "GDX", "EWU", "EWG", "FEZ"]
 US_COST = 5.0
 WIN_RATE, EXCESS = 0.60, 0.15
 PORTFOLIOS = {"LQQ3 alone": (["LQQ3.L"], 1), "3LUS alone": (["3LUS.L"], 1),
@@ -176,6 +184,130 @@ def short_tests(b: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return pd.DataFrame(rows).T
 
 
+# ------------------------------------------------------------------ ISA fund universe (WisdomTree + Leverage Shares)
+
+# London 3x funds in the user's ISA. signal: the US ETF whose close gives the signal, or "own" (the fund's own London
+# prices: European and UK indices trade in London hours). proxy: what the fund is 3x (or -3x) of, to measure
+# consolidations and splits that Yahoo leaves in the prices.
+UNIVERSE = {
+    "LQQ3.L": dict(name="LQQ3", tracks="Nasdaq-100 3x", issuer="WisdomTree", side=1, signal="QQQ", proxy="QQQ"),
+    "3LUS.L": dict(name="3LUS", tracks="S&P 500 3x", issuer="WisdomTree", side=1, signal="SPY", proxy="SPY"),
+    "3UKL.L": dict(name="3UKL", tracks="FTSE 100 3x", issuer="WisdomTree", side=1, signal="own", proxy="EWU"),
+    "3LDE.L": dict(name="3LDE", tracks="DAX 3x", issuer="WisdomTree", side=1, signal="own", proxy="EWG"),
+    "3LEU.L": dict(name="3LEU", tracks="EURO STOXX 50 3x", issuer="WisdomTree", side=1, signal="own", proxy="FEZ"),
+    # Leverage Shares sector funds: Yahoo has no prices from 2022-12-09 to 2024-04-16 (consolidated on return),
+    # so they are used from 2024-04-16 only
+    "3SMH.L": dict(name="3SMH", tracks="Semiconductors (SMH) 3x", issuer="Leverage Shares", side=1, signal="SMH",
+                   proxy="SMH", start="2024-04-16"),
+    "3GDX.L": dict(name="3GDX", tracks="Gold miners (GDX) 3x", issuer="Leverage Shares", side=1, signal="GDX",
+                   proxy="GDX", start="2024-04-16"),
+    "3UKS.L": dict(name="3UKS", tracks="FTSE 100 -3x", issuer="WisdomTree", side=-1, signal="own:3UKL.L", proxy="EWU"),
+}
+# Approved and fetched but left out: 3XLF and 3XLE barely trade (about GBP 300 and GBP 8,000 a day, no price range on
+# a fifth of days); 3ULS's 2022 consolidation ratio cannot be pinned down; the silver (3LSI) and oil (3LOI) pence
+# lines have too little or broken history.
+EXCLUDED = {"3XLF": "barely trades (about GBP 300 a day; no price range on 26% of days)",
+            "3XLE": "barely trades (about GBP 8,000 a day; no price range on 17% of days)",
+            "3ULS": "S&P 500 -3x: its December 2022 consolidation ratio cannot be pinned down from the prices",
+            "3LSI / 3LOI": "silver and oil: one day of pence prices, or broken history from late 2020"}
+SETS = {"US indices (2)": ["LQQ3.L", "3LUS.L"],
+        "US indices + semis and gold miners (4)": ["LQQ3.L", "3LUS.L", "3SMH.L", "3GDX.L"],
+        "WisdomTree indices (5)": ["LQQ3.L", "3LUS.L", "3UKL.L", "3LDE.L", "3LEU.L"],
+        "indices + semis and gold miners (7)": ["LQQ3.L", "3LUS.L", "3UKL.L", "3LDE.L", "3LEU.L", "3SMH.L",
+                                                "3GDX.L"],
+        "7 longs + FTSE 100 short (8)": ["LQQ3.L", "3LUS.L", "3UKL.L", "3LDE.L", "3LEU.L", "3SMH.L", "3GDX.L",
+                                         "3UKS.L"]}
+UNI_ENTRIES = [("ibs", 0.1), ("ibs", 0.2), ("rsi", 10), ("rsi", 20), ("low", 5)]
+# The recommendation: the steadiest setting on the ISA funds (chosen after seeing the results, from the IBS < 0.1
+# family, which beat the S&P in both halves with every US-index fund set)
+RECOMMENDED = "US indices (2), one slot each: IBS < 0.1; sell close > 5-day avg"
+# Decided before seeing any London price: the steadiest rule of the US nine-fund test (backtest/DAILY.md)
+PREREGISTERED = "indices + semis and gold miners (7), one slot each: IBS < 0.1; sell close > prior high"
+ROUND_RATIOS = np.array([2, 3, 4, 5, 8, 10, 15, 20, 25, 30, 40, 50, 75, 80, 100, 125, 150, 200, 250, 300, 400,
+                         500, 1000], dtype=float)
+
+
+def adjust_actions(df: pd.DataFrame, under: pd.Series, lev: float) -> tuple[pd.DataFrame, list[tuple]]:
+    """Undo consolidations and splits left in a London fund's daily prices. A close-to-close move above +100% or
+    below -50% is not a 3x daily move: its ratio is measured against lev x the underlying (median of fund / model
+    over 15 sessions on each side), rounded to a round ratio when within 5%, and all earlier prices are scaled by it."""
+    out = df.copy()
+    model = (1 + lev * under.pct_change().fillna(0.0)).cumprod().reindex(out.index, method="ffill")
+    r = out["close"].pct_change()
+    fixes = []
+    for d in sorted(r[(r > 1.0) | (r < -0.5)].index, reverse=True):
+        k = out.index.get_loc(d)
+        rel = out["close"] / model
+        ratio = rel.iloc[k:k + 15].median() / rel.iloc[max(0, k - 15):k].median()
+        cands = np.concatenate([ROUND_RATIOS, 1 / ROUND_RATIOS])
+        best = cands[np.argmin(np.abs(np.log(cands / ratio)))]
+        used = best if abs(np.log(best / ratio)) < np.log(1.05) else ratio
+        out.loc[out.index < d, ["open", "high", "low", "close"]] *= used
+        fixes.append((str(d.date()), round(float(ratio), 2), float(used)))
+    return out, fixes
+
+
+def load_universe(b: dict[str, pd.DataFrame]) -> tuple[dict[str, pd.DataFrame], dict[str, list]]:
+    funds, fixes = {}, {}
+    for t, f in UNIVERSE.items():
+        df = fetch_yahoo(t, max_age_days=4)
+        if f.get("start"):
+            df = df[df.index >= pd.Timestamp(f["start"])]
+        df, fx = adjust_actions(df, b[f["proxy"]]["c"], 3 * f["side"])
+        funds[t], fixes[t] = df, fx
+    return funds, fixes
+
+
+def signal_bars(t: str, funds: dict[str, pd.DataFrame], b: dict[str, pd.DataFrame]) -> pd.DataFrame:
+    sig = UNIVERSE[t]["signal"]
+    if sig.startswith("own"):
+        src = funds[sig.split(":")[1]] if ":" in sig else funds[t]
+        return src.rename(columns={"open": "o", "high": "h", "low": "l", "close": "c"})[["o", "h", "l", "c"]]
+    return b[sig]
+
+
+def universe_state(t: str, bars: pd.DataFrame, entry: tuple, leave: str, trend: bool) -> pd.Series:
+    """Holding state after each signal close: dips for a long fund; for a short fund the mirror rule (a short
+    rise while the index is below its 200-day average)."""
+    if UNIVERSE[t]["side"] > 0:
+        return dip_state(bars, entry, leave, trend)
+    e, x = rip_signals(bars["c"], bars["h"], bars["l"], entry, leave)
+    state, held = [], False
+    for buy, sell in zip(e.to_numpy(), x.to_numpy()):
+        held = (not sell) if held else bool(buy)
+        state.append(held)
+    return pd.Series(state, index=bars.index)
+
+
+def universe_variants() -> list[tuple[str, dict]]:
+    v = []
+    for set_name, cols in SETS.items():
+        for slots in ("one slot each", "up to 2 at a time", "up to 3 at a time"):
+            if slots != "one slot each" and int(slots.split()[2]) >= len(cols):
+                continue
+            for entry in UNI_ENTRIES:
+                kind, x = entry
+                for leave in EXITS:
+                    for trend in (False, True):
+                        label = (f"{set_name}, {slots}: {ENTRY_LABEL[kind].format(x=x)}"
+                                 f"{', above 200-day' if trend else ''}; sell {EXIT_LABEL[leave].format(x=x)}")
+                        v.append((label, dict(set=set_name, slots=slots, entry=entry, leave=leave, trend=trend)))
+    return v
+
+
+def run_universe(b, funds, cash_r, lse, i0, bench) -> tuple[pd.DataFrame, dict, dict]:
+    bars = {t: signal_bars(t, funds, b) for t in UNIVERSE}
+    oversold = {t: -rsi(bars[t]["c"], 2) for t in UNIVERSE}
+    rows, curves, trades = {}, {}, {}
+    for label, kw in universe_variants():
+        cols = SETS[kw["set"]]
+        states = {t: universe_state(t, bars[t], kw["entry"], kw["leave"], kw["trend"]) for t in cols}
+        n = len(cols) if kw["slots"] == "one slot each" else int(kw["slots"].split()[2])
+        eq, t = isa_run({t: funds[t] for t in cols}, states, {t: oversold[t] for t in cols}, n, cash_r, lse, i0)
+        rows[label], curves[label], trades[label] = dip_measures(eq, t, bench), eq, t
+    return pd.DataFrame(rows).T, curves, trades
+
+
 # ------------------------------------------------------------------ report
 
 def run_all() -> dict:
@@ -205,12 +337,103 @@ def run_all() -> dict:
         curves[name] = eq
     tbl = pd.DataFrame(rows).T
     shorts = short_tests(b)
+    ufunds, fixes = load_universe(b)
+    ulse = ufunds["LQQ3.L"].index
+    for df in ufunds.values():
+        ulse = ulse.union(df.index)
+    ulse = ulse[ulse <= min(df.index[-1] for df in ufunds.values())]
+    ui0 = int(ulse.searchsorted(pd.Timestamp(START))) - 1
+    ucash = cash.reindex(ulse).fillna(0.0).to_numpy()
+    ubench = to_gbp(spy[spy.index >= ulse[ui0]] / spy[spy.index >= ulse[ui0]].iloc[0], gbpusd)
+    utbl, ucurves, utrades = run_universe(b, ufunds, ucash, ulse, ui0, ubench)
     out_dir = paths().root / "backtests" / "isa"
     out_dir.mkdir(parents=True, exist_ok=True)
     tbl.to_csv(out_dir / "isa_variants.csv")
     shorts.to_csv(out_dir / "short_tests.csv")
+    utbl.to_csv(out_dir / "universe_variants.csv")
     return {"table": tbl, "refs": pd.DataFrame(refs).T, "curves": curves, "trades": trades, "bench": bench,
-            "shorts": shorts, "lse": lse, "i0": i0}
+            "shorts": shorts, "lse": lse, "i0": i0, "utable": utbl, "ucurves": ucurves, "utrades": utrades,
+            "ubench": ubench, "ufunds": ufunds, "fixes": fixes}
+
+
+def universe_section(out: dict) -> list[str]:
+    """The ISA fund universe: what was checked, the rule fixed in advance, the 2017-21 pick and the sets."""
+    utbl, ucurves, utrades, bench, funds, fixes = (out[k] for k in ("utable", "ucurves", "utrades", "ubench",
+                                                                    "ufunds", "fixes"))
+    split = pd.Timestamp(SPLIT)
+    sp = {k: stats(v)["CAGR"] for k, v in (("all", bench), ("a", bench[bench.index <= split]),
+                                           ("b", bench[bench.index >= split]))}
+    main = ["CAGR", "vs S&P 500", "2017-21 vs S&P", "2022-26 vs S&P", "Win rate", "Trades per year",
+            "Avg hold (sessions)", "Max drawdown", "Worst year"]
+    ok = utbl[utbl["2017-21 win rate"] >= WIN_RATE]
+    pick = ok["2017-21"].idxmax() if len(ok) else None
+    both = utbl[(utbl["Win rate"] >= WIN_RATE) & (utbl["2017-21 vs S&P"] >= EXCESS) & (utbl["2022-26 vs S&P"] >= EXCESS)]
+    rows = {}
+    for t, f in UNIVERSE.items():
+        df = funds[t]
+        last = df[df.index >= df.index[-1] - pd.Timedelta(days=365)]
+        rows[f["name"]] = {"Tracks": f["tracks"], "Issuer": f["issuer"], "Used from": str(df.index[0].date())
+                           if df.index[0] > pd.Timestamp("2016-01-01") else "before 2017",
+                           "Median GBP traded a day (last year)": f"{(last['close'] / 100 * last['volume']).median():,.0f}",
+                           "Split / consolidation fixed": ", ".join(f"{d} x{u:g}" for d, _, u in fixes[t]) or "-"}
+    funds_tbl = pd.DataFrame(rows).T
+    group = pd.Series([s.split(":")[0] for s in utbl.index], index=utbl.index)
+    by = utbl.groupby(group, sort=False).agg(**{
+        "Settings": ("CAGR", "size"), "Median CAGR": ("CAGR", "median"), "Median vs S&P": ("vs S&P 500", "median"),
+        "Median 2017-21 vs S&P": ("2017-21 vs S&P", "median"), "Median 2022-26 vs S&P": ("2022-26 vs S&P", "median"),
+        "Median win rate": ("Win rate", "median"), "Median max drawdown": ("Max drawdown", "median")})
+    for c in ("Median CAGR", "Median win rate", "Median max drawdown"):
+        by[c] = by[c].map(lambda v: f"{v:.1%}")
+    for c in ("Median vs S&P", "Median 2017-21 vs S&P", "Median 2022-26 vs S&P"):
+        by[c] = by[c].map(lambda v: f"{v:+.1%}")
+    # the FTSE short: each long-only setting against the same setting with the short fund added
+    pairs = [(x, x.replace("indices + semis and gold miners (7)", "7 longs + FTSE 100 short (8)"))
+             for x in utbl.index if x.startswith("indices + semis and gold miners (7)")]
+    d_cagr = pd.Series([utbl.loc[b_, "CAGR"] - utbl.loc[a, "CAGR"] for a, b_ in pairs])
+    d_dd = pd.Series([utbl.loc[b_, "Max drawdown"] - utbl.loc[a, "Max drawdown"] for a, b_ in pairs])
+    shown = [x for x in [RECOMMENDED, PREREGISTERED, pick] if x in utbl.index]
+    shown += [x for x in both.sort_values("CAGR", ascending=False).index if x not in shown][:8]
+    lines = [
+        "## The funds checked (WisdomTree and Leverage Shares, London-listed, in pence)", "",
+        "WisdomTree's 3x index funds trade every day since 2012. Leverage Shares' 3x sector funds list in London from "
+        "December 2021, but Yahoo has no prices for them from December 2022 to April 2024, so they enter in April "
+        "2024. Signals: the US ETF at the US close for US markets (QQQ, SPY, SMH, GDX), the fund's own London prices "
+        "for the FTSE 100, DAX and EURO STOXX 50; every trade at the next London open.", "",
+        md(funds_tbl, "Fund"), "",
+        "Left out: " + "; ".join(f"{k}: {v}" for k, v in EXCLUDED.items()) + ".", "",
+        "## Answer", "",
+        f"Benchmark: the S&P 500 in pounds, {sp['all']:.1%} a year ({sp['a']:.1%} in 2017-21, {sp['b']:.1%} in "
+        f"2022-26). {len(utbl)} settings on these funds; {len(both)} beat it by {EXCESS:.0%} or more in both 2017-21 "
+        f"and 2022-26 with at least {WIN_RATE:.0%} winning trades.", "",
+        f"**Recommended: {RECOMMENDED}.** Half the ISA in LQQ3 (Nasdaq-100 3x) and half in 3LUS (S&P 500 3x): buy a "
+        "fund at the London open after its index (QQQ for LQQ3, SPY for 3LUS) closes in the bottom 10% of its day's "
+        "range, sell at the London open after the index closes above its 5-day average, cash in between. It was "
+        "picked after seeing the results, but every IBS < 0.1 setting on these two funds beat the S&P in both halves. "
+        "The European index funds and the short funds made results worse; Leverage Shares' semiconductor and gold "
+        "miner funds (prices only from April 2024) did not improve it.", "",
+        "Rows: the recommendation; the rule fixed in advance from the US nine-fund test (backtest/DAILY.md), before "
+        "any London price was seen (the honest out-of-sample test of that idea); the setting with the best 2017-21 "
+        f"return among those that won at least {WIN_RATE:.0%} of their 2017-21 trades; then the settings that beat "
+        f"the S&P by {EXCESS:.0%} or more in both halves:", "",
+        md(dfmt(utbl.loc[shown, main]), "Setting"), "",
+        "By fund set and number of places:", "", md(by, "Funds and places"), "",
+        f"Adding the FTSE 100 3x short fund (bought after short rises while the FTSE is below its 200-day average) "
+        f"changed the yearly return by {d_cagr.median():+.1%} (median over {len(pairs)} settings; "
+        f"{(d_cagr > 0).mean():.0%} improved) and the max drawdown by {d_dd.median():+.1%}.", ""]
+    if RECOMMENDED in ucurves and PREREGISTERED in ucurves:
+        years = pd.DataFrame({"Recommended": yearly_returns(ucurves[RECOMMENDED]),
+                              "Rule fixed in advance (7 funds)": yearly_returns(ucurves[PREREGISTERED]),
+                              "S&P 500 in pounds": yearly_returns(bench)})
+        lines += ["Calendar years:", "", md(years.map(lambda v: f"{v:+.1%}"), "Year"), ""]
+        for label, name in ((RECOMMENDED, "the recommendation"), (PREREGISTERED, "the rule fixed in advance")):
+            t = utrades[label]
+            share = (t.groupby("asset")["ret"].sum() / t["ret"].sum()).sort_values(ascending=False)
+            lines += [f"Where {name} made its money (share of summed trade returns, trades): " + ", ".join(
+                f"{a} {v:.0%} ({(t['asset'] == a).sum()})" for a, v in share.items()) + "."]
+        worst = utrades[RECOMMENDED].sort_values("ret").head(5)
+        lines += ["", "Worst trades of the recommendation: " + ", ".join(
+            f"{r.asset} {r.entry.date()} to {r.exit.date()} {r.ret:+.1%}" for r in worst.itertuples()) + ".", ""]
+    return lines
 
 
 def report(out: dict) -> str:
@@ -241,12 +464,13 @@ def report(out: dict) -> str:
     first, last = bench.index[0].date(), bench.index[-1].date()
     lines = [
         f"# Daily strategies for a sterling ISA ({first} to {last})", "",
+        *universe_section(out), "",
+        "## Two funds only: LQQ3 and 3LUS (the earlier test)", "",
         f"Generated by `python -m backtest.isa` on {dt.date.today()}. See the module docstring for the rules. Real "
         "London prices of LQQ3 (3x Nasdaq-100) and 3LUS (3x S&P 500) in pence; signals at the US close, trades at "
         f"the next London open, {COST_BPS:g} bps a side, sterling interest on idle cash. Benchmark: the S&P 500 in "
         f"pounds, {sp['all']:.1%} a year ({sp['a']:.1%} in 2017-21, {sp['b']:.1%} in 2022-26). Targets: at least "
         f"{WIN_RATE:.0%} winning trades and {EXCESS:.0%} a year above the S&P 500.", "",
-        "## Answer", "",
         f"{len(tbl)} settings tested; {len(hit)} reached both targets over the whole period and {len(both)} in both "
         "2017-21 and 2022-26.", "",
         "By portfolio:", "", md(by_port, "Portfolio"), "",
