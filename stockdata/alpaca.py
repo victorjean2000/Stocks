@@ -72,6 +72,16 @@ def safe_end(now: dt.datetime | None = None) -> str:
     return (now - SIP_DELAY).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def drop_unfinished(bars: pd.DataFrame, col: str = "date", now: dt.datetime | None = None) -> pd.DataFrame:
+    """Daily bars without today's session (New York) until its close is final (16:00 plus the SIP delay).
+    During market hours Alpaca returns today's bar so far, which must never be cached or read as a close."""
+    ny = (now or dt.datetime.now(dt.timezone.utc)).astimezone(ZoneInfo("America/New_York"))
+    final = dt.datetime.combine(ny.date(), dt.time(16, 0), ny.tzinfo) + SIP_DELAY
+    if ny >= final:
+        return bars
+    return bars[pd.to_datetime(bars[col]) < pd.Timestamp(ny.date())]
+
+
 class FeedChooser:
     """SIP by default; switch to IEX only if SIP is refused outright."""
 

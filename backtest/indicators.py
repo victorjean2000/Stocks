@@ -100,3 +100,11 @@ def event_window(events: pd.DataFrame, index: pd.DatetimeIndex, columns, days: i
         ok = (rk >= 0) & (rk < len(index))
         out[rk[ok], c[ok]] = True
     return pd.DataFrame(out, index=index, columns=cols)
+
+
+def rsi(close: pd.DataFrame | pd.Series, n: int = 2) -> pd.DataFrame | pd.Series:
+    """Wilder's RSI: average gains and losses smoothed with alpha 1/n (100 when there were no losses)."""
+    d = close.diff()
+    up = d.clip(lower=0).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+    down = (-d).clip(lower=0).ewm(alpha=1 / n, adjust=False, min_periods=n).mean()
+    return 100 - 100 / (1 + up / down)

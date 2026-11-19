@@ -53,6 +53,7 @@ def etf_bars(symbols=ETFS, start: str = "2016-01-01") -> pd.DataFrame:
         if fresh and set(symbols) <= set(df["ticker"]):
             return df
     df = alpaca.fetch_bars(alpaca.session(), list(symbols), start, alpaca.safe_end(), "all", "sip")
+    df = alpaca.drop_unfinished(df)
     df.to_parquet(path, index=False)
     return df
 

@@ -95,7 +95,8 @@ def parse_chart(payload: dict, now: pd.Timestamp | None = None) -> pd.DataFrame:
 
 
 def alpaca_daily(symbols: list[str], adjustment: str = "all", start: str = "2016-01-01") -> pd.DataFrame:
-    bars = alpaca.fetch_bars(alpaca.session(), symbols, start, alpaca.safe_end(), adjustment, "sip")
+    bars = alpaca.drop_unfinished(alpaca.fetch_bars(alpaca.session(), symbols, start, alpaca.safe_end(), adjustment,
+                                                    "sip"))
     return bars.pivot(index="date", columns="ticker", values="c").sort_index()
 
 

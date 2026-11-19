@@ -478,7 +478,7 @@ def spy(start: str = "2016-01-01") -> pd.Series:
         if (pd.Timestamp.today().normalize() - s.index.max()).days <= 3:
             return s
     sess = alpaca.session()
-    bars = alpaca.fetch_bars(sess, ["SPY"], start, alpaca.safe_end(), "all", "sip")
+    bars = alpaca.drop_unfinished(alpaca.fetch_bars(sess, ["SPY"], start, alpaca.safe_end(), "all", "sip"))
     s = bars.set_index("date")["c"].rename("close").astype(float)
     s.to_frame().to_parquet(path)
     return s
