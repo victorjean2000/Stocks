@@ -67,3 +67,24 @@ def test_without_years_chains_the_other_years():
     eq = (1 + r).cumprod()
     assert without_years(eq, [2020])["CAGR"] == pytest.approx(0.0, abs=1e-12)
     assert without_years(eq)["CAGR"] > 0.5
+
+
+def test_blend_resets_the_split_each_january():
+    from backtest.isa import blend
+    idx = pd.to_datetime(["2020-06-01", "2020-12-31", "2021-06-01", "2021-12-31"])
+    flat = pd.Series(1.0, index=idx)
+    up = pd.Series([1.0, 2.0, 2.0, 4.0], index=idx)  # doubles in each year
+    eq = blend(flat, up)
+    assert eq.iloc[1] == pytest.approx(1.5)  # half flat, half doubled
+    assert eq.iloc[3] == pytest.approx(1.5 * 1.5)  # back to half each in January, the same again (not 2.5)
+
+
+def test_index_edge_measures_the_moves_after_a_close_near_the_low():
+    from backtest.isa import index_edge
+    idx = pd.bdate_range("2020-01-01", periods=6)
+    c = pd.Series([100.0, 101.0, 102.0, 103.0, 104.0, 105.0], index=idx)
+    bars = pd.DataFrame({"c": c, "h": c + 1, "l": c - 1})
+    bars.loc[idx[2], "l"] = 102.0  # day 2 closes at its low; every other day mid-range
+    e = index_edge(bars, start="2020-01-01")
+    assert e["days"] == 1 and e["next day"] == pytest.approx(103 / 102 - 1)
+    assert e["next 3 days"] == pytest.approx(105 / 102 - 1)

@@ -87,6 +87,44 @@ Worst trades of the recommendation: 3LUS 2022-06-10 to 2022-06-22 -21.7%, LQQ3 2
 
 With its best trades taken out (the money stays in cash for those sessions): 5 best: 25.6% a year (+12.0% against the S&P); 10 best: 21.9% a year (+8.3% against the S&P); 20 best: 16.3% a year (+2.7% against the S&P). The ten best: 3LUS 2020-03-23 +22%, LQQ3 2022-11-10 +20%, LQQ3 2020-04-21 +17%, 3LUS 2020-04-08 +15%, 3LUS 2020-04-21 +14%, 3LUS 2022-11-10 +14%, 3LUS 2020-05-13 +13%, LQQ3 2018-02-22 +12%, LQQ3 2024-05-01 +12%, LQQ3 2020-11-10 +11%.
 
+## What the recommendation captures
+
+Short-term overreaction in the index: a close in the bottom 10% of the day's range (QQQ / SPY, the 9:30-16:00 New York session, Alpaca daily bars) tends to be followed by a bounce over the next few days. Since 2017:
+
+| Index | QQQ | SPY |
+|---|---|---|
+| Closes in the bottom 10% of the range | 235 (9% of days) | 230 (9% of days) |
+| Next day after one | +0.40% (up 63%) | +0.15% (up 57%) |
+| Next day, all days | +0.08% (up 56%) | +0.06% (up 55%) |
+| Next 3 days after one | +0.85% | +0.59% |
+| Next 3 days, all days | +0.24% | +0.18% |
+
+The rule holds each fund only for that bounce (about 3 sessions; invested 20% of the time) and the 3x funds turn it into +1.6% a trade on average. The bounces are bigger when the market is volatile, and dips below the 200-day average pay more per trade:
+
+| Index at the signal | Trades | Win rate | Average trade | Share of profit |
+|---|---|---|---|---|
+| Index above its 200-day avg | 289 | 70% | +1.4% | 72% |
+| Index below its 200-day avg | 74 | 70% | +2.2% | 28% |
+| calmest third (20-day volatility 4% to 14%) | 121 | 68% | +1.1% | 23% |
+| middle third (20-day volatility 14% to 21%) | 121 | 72% | +1.5% | 31% |
+| most volatile third (20-day volatility 21% to 88%) | 121 | 70% | +2.1% | 46% |
+
+## Combined with your 200-day rule
+
+The averages are simple moving averages (the plain mean of the last 200, or 5, daily closes; the live paper account uses the same). An exponential 200-day average would have given your rule 31.0% a year against 29.1%, with a max drawdown of -57% against -56%.
+
+| Rule | CAGR | Without 2020 | 2017-21 | 2022-26 | Max drawdown | Worst year | Time invested |
+|---|---|---|---|---|---|---|---|
+| Recommended dip rule | 30.8% | 23.4% | 38.3% | 23.6% | -33% (Feb 2025 to Apr 2025) | -5% (2018) | 20% |
+| Dip rule, buying only above the 200-day avg | 22.1% | 18.3% | 28.9% | 15.6% | -23% (Dec 2019 to Feb 2020) | -10% (2022) | 15% |
+| Your current rule: LQQ3 above the 200-day avg | 29.1% | 22.5% | 45.2% | 14.6% | -56% (Feb 2020 to Apr 2020) | -44% (2022) | 83% |
+| Your rule, plus dip trades in LQQ3 below the 200-day avg | 34.9% | 28.4% | 47.7% | 23.1% | -67% (Feb 2020 to Mar 2020) | -38% (2022) | 89% |
+| Both funds: hold above the 200-day avg, dip trades below it | 34.8% | 27.6% | 50.2% | 20.9% | -53% (Feb 2020 to Mar 2020) | -29% (2022) | 86% |
+| Half the ISA in your rule, half in the dip rule (reset each January) | 31.7% | 24.8% | 42.0% | 22.0% | -41% (Feb 2020 to Mar 2020) | -15% (2022) | 52% |
+| S&P 500 in pounds | 13.6% | 13.4% | 16.3% | 10.9% | -25% (Feb 2020 to Mar 2020) | -9% (2022) | 100% |
+
+Buying dips only above the 200-day average skips the 74 trades taken below it (20% of trades, 28% of the profit): a smaller drawdown for a lower return. Holding LQQ3 whenever the index is above its average and adding dip trades below it gives the highest return but the deepest fall, because the trend rule is still fully invested when a crash starts and the dip trades then buy into it. Splitting the ISA between the two rules sits in between.
+
 
 ## Two funds only: LQQ3 and 3LUS (the earlier test)
 

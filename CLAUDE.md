@@ -84,7 +84,8 @@ index by `fill_stale_prints` in `backtest/lqq3.py`) on the daily dip rules: US-E
 for the FTSE, DAX and EURO STOXX), next London open, sterling cash, S&P 500 in pounds as the benchmark. `RECOMMENDED`
 in `backtest/isa.py` is the current answer (LQQ3 + 3LUS half each, IBS < 0.1, sell above the 5-day average). Whether 3x short funds help is tested on the US funds
 (TQQQ / UPRO long, SQQQ / SPXU short; bars in `data/benchmarks/longshort_daily.parquet`) because London short-fund
-prices are not approved. Results: `backtest/ISA.md`.
+prices are not approved. Results: `backtest/ISA.md`, which also shows the recommendation without 2020 or its
+best trades, what it captures, and combined with the 200-day rule (`combination_section`).
 
 ## Paper trading
 

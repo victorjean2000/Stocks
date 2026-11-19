@@ -425,6 +425,128 @@ def without_winners_section(out: dict) -> list[str]:
         ""]
 
 
+def blend(e1: pd.Series, e2: pd.Series, w: float = 0.5) -> pd.Series:
+    """Equity of an account with w in strategy e1 and 1 - w in e2, set back to w / 1 - w every January (both
+    curves start at 1 on the same dates)."""
+    e2 = e2.reindex(e1.index)
+    year = e1.index.year.to_numpy()
+    parts, level = [], 1.0
+    for y in np.unique(year):
+        rows = np.flatnonzero(year == y)
+        base = max(rows[0] - 1, 0)
+        seg = level * (w * e1.iloc[rows] / e1.iloc[base] + (1 - w) * e2.iloc[rows] / e2.iloc[base])
+        parts.append(seg)
+        level = seg.iloc[-1]
+    return pd.concat(parts)
+
+
+def index_edge(bars: pd.DataFrame, x: float = 0.1, start: str = "2017-01-01") -> dict:
+    """The index's own moves after a close in the bottom x of its day's range, against all days."""
+    bars = bars[bars.index >= pd.Timestamp(start)]
+    hit = ((bars["c"] - bars["l"]) / (bars["h"] - bars["l"]) < x).to_numpy()
+    nxt1, nxt3 = (bars["c"].shift(-1) / bars["c"] - 1).to_numpy(), (bars["c"].shift(-3) / bars["c"] - 1).to_numpy()
+    return {"days": int(hit.sum()), "share": hit.mean(), "next day": np.nanmean(nxt1[hit]),
+            "next day up": np.nanmean(nxt1[hit] > 0), "next 3 days": np.nanmean(nxt3[hit]),
+            "all next day": np.nanmean(nxt1), "all next day up": np.nanmean(nxt1 > 0), "all next 3 days": np.nanmean(nxt3)}
+
+
+def _combo_row(eq: pd.Series, invested: float) -> dict:
+    split = pd.Timestamp(SPLIT)
+    y = yearly_returns(eq)
+    dd = eq / eq.cummax() - 1
+    trough = dd.idxmin()
+    peak = eq[:trough].idxmax()
+    return {"CAGR": f"{stats(eq)['CAGR']:.1%}", "Without 2020": f"{without_years(eq, [2020])['CAGR']:.1%}",
+            "2017-21": f"{stats(eq[eq.index <= split])['CAGR']:.1%}",
+            "2022-26": f"{stats(eq[eq.index >= split])['CAGR']:.1%}",
+            "Max drawdown": f"{dd.min():.0%} ({peak:%b %Y} to {trough:%b %Y})",
+            "Worst year": f"{y.min():+.0%} ({y.idxmin()})", "Time invested": f"{invested:.0%}"}
+
+
+def combination_section(out: dict) -> list[str]:
+    """What the recommendation earns from, and the recommendation combined with the trend rule (LQQ3 while QQQ is
+    above its 200-day simple average)."""
+    b, funds, lse, i0, cash, bench = (out[k] for k in ("b", "ufunds", "ulse", "ui0", "ucash", "ubench"))
+    kws = dict(universe_variants())
+    rec_kw = kws[RECOMMENDED]
+    filtered = next(label for label, kw in kws.items() if kw == {**rec_kw, "trend": True})
+    cols = SETS[rec_kw["set"]]
+    sig = {f: UNIVERSE[f]["signal"] for f in cols}
+    trend = {f: regime(b[sig[f]]["c"], 200, 1) for f in cols}
+    dip = {f: universe_state(f, b[sig[f]], rec_kw["entry"], rec_kw["leave"], False) for f in cols}
+    score = {f: -rsi(b[sig[f]]["c"], 2) for f in cols}
+
+    def go(states: dict) -> tuple[pd.Series, float]:
+        eq, t = isa_run({f: funds[f] for f in states}, states, {f: score[f] for f in states}, len(states), cash,
+                        lse, i0)
+        return eq, t["days"].sum() / (len(eq) * len(states))
+
+    rec, t_rec = out["ucurves"][RECOMMENDED], out["utrades"][RECOMMENDED]
+    inv_rec = t_rec["days"].sum() / (len(rec) * len(cols))
+    t_f = out["utrades"][filtered]
+    trend_eq, inv_trend = go({"LQQ3.L": trend["LQQ3.L"]})
+    lines_ = {"Recommended dip rule": (rec, inv_rec),
+              "Dip rule, buying only above the 200-day avg": (out["ucurves"][filtered],
+                                                              t_f["days"].sum() / (len(rec) * len(cols))),
+              "Your current rule: LQQ3 above the 200-day avg": (trend_eq, inv_trend),
+              "Your rule, plus dip trades in LQQ3 below the 200-day avg": go(
+                  {"LQQ3.L": trend["LQQ3.L"] | dip["LQQ3.L"]}),
+              "Both funds: hold above the 200-day avg, dip trades below it": go(
+                  {f: trend[f] | dip[f] for f in cols}),
+              "Half the ISA in your rule, half in the dip rule (reset each January)": (
+                  blend(trend_eq, rec), (inv_trend + inv_rec) / 2),
+              "S&P 500 in pounds": (bench, 1.0)}
+    rows = {name: _combo_row(eq, inv) for name, (eq, inv) in lines_.items()}
+
+    # the recommendation's trades by the index's trend and volatility at the signal close
+    info = []
+    for r in t_rec.itertuples():
+        c = b[sig[next(f for f in cols if NAMES[f] == r.asset)]]["c"]
+        k = c.index.searchsorted(r.entry, side="left") - 1
+        info.append({"ret": r.ret, "above": bool(c.iloc[k] > c.rolling(200).mean().iloc[k]),
+                     "vol": float(c.pct_change().rolling(20).std().iloc[k] * np.sqrt(252))})
+    info = pd.DataFrame(info)
+    info["band"] = pd.qcut(info["vol"], 3, labels=["calmest third", "middle third", "most volatile third"])
+    total = info["ret"].sum()
+    by = {}
+    for name, g in [("Index above its 200-day avg", info[info["above"]]),
+                    ("Index below its 200-day avg", info[~info["above"]])] + \
+            [(f"{band} (20-day volatility {g['vol'].min():.0%} to {g['vol'].max():.0%})", g)
+             for band, g in info.groupby("band", observed=True)]:
+        by[name] = {"Trades": len(g), "Win rate": f"{(g['ret'] > 0).mean():.0%}",
+                    "Average trade": f"{g['ret'].mean():+.1%}", "Share of profit": f"{g['ret'].sum() / total:.0%}"}
+    edge = {s: index_edge(b[s]) for s in ("QQQ", "SPY")}
+    below = info[~info["above"]]
+    c = b["QQQ"]["c"]
+    ema_on = (c > c.ewm(span=200, adjust=False).mean()) & (np.arange(len(c)) >= 199)
+    ema_eq, _ = go({"LQQ3.L": pd.Series(ema_on, index=c.index)})
+    return [
+        "## What the recommendation captures", "",
+        "Short-term overreaction in the index: a close in the bottom 10% of the day's range (QQQ / SPY, the 9:30-16:00 "
+        "New York session, Alpaca daily bars) tends to be followed by a bounce over the next few days. Since 2017:", "",
+        md(pd.DataFrame({s: {"Closes in the bottom 10% of the range": f"{e['days']} ({e['share']:.0%} of days)",
+                             "Next day after one": f"{e['next day']:+.2%} (up {e['next day up']:.0%})",
+                             "Next day, all days": f"{e['all next day']:+.2%} (up {e['all next day up']:.0%})",
+                             "Next 3 days after one": f"{e['next 3 days']:+.2%}",
+                             "Next 3 days, all days": f"{e['all next 3 days']:+.2%}"} for s, e in edge.items()}),
+           "Index"), "",
+        f"The rule holds each fund only for that bounce (about {t_rec['days'].mean():.0f} sessions; invested "
+        f"{inv_rec:.0%} of the time) and the 3x funds turn it into {t_rec['ret'].mean():+.1%} a trade on average. The "
+        "bounces are bigger when the market is volatile, and dips below the 200-day average pay more per trade:", "",
+        md(pd.DataFrame(by).T, "Index at the signal"), "",
+        "## Combined with your 200-day rule", "",
+        f"The averages are simple moving averages (the plain mean of the last 200, or 5, daily closes; the live paper "
+        f"account uses the same). An exponential 200-day average would have given your rule {stats(ema_eq)['CAGR']:.1%} "
+        f"a year against {stats(trend_eq)['CAGR']:.1%}, with a max drawdown of {stats(ema_eq)['Max drawdown']:.0%} "
+        f"against {stats(trend_eq)['Max drawdown']:.0%}.", "",
+        md(pd.DataFrame(rows).T, "Rule"), "",
+        f"Buying dips only above the 200-day average skips the {len(below)} trades taken below it "
+        f"({len(below) / len(info):.0%} of trades, {below['ret'].sum() / total:.0%} of the profit): a smaller drawdown "
+        "for a lower return. Holding LQQ3 whenever the index is above its average and adding dip trades below it "
+        "gives the highest return but the deepest fall, because the trend rule is still fully invested when a crash "
+        "starts and the dip trades then buy into it. Splitting the ISA between the two rules sits in between.", ""]
+
+
 def _years(days: pd.DatetimeIndex) -> str:
     """'n (2017: a, 2018: b, ...)' for the days from START."""
     days = days[days >= pd.Timestamp(START)]
@@ -518,6 +640,7 @@ def universe_section(out: dict) -> list[str]:
         lines += ["", "Worst trades of the recommendation: " + ", ".join(
             f"{r.asset} {r.entry.date()} to {r.exit.date()} {r.ret:+.1%}" for r in worst.itertuples()) + ".", ""]
         lines += without_winners_section(out)
+        lines += combination_section(out)
     return lines
 
 
