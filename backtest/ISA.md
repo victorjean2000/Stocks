@@ -4,16 +4,16 @@
 
 WisdomTree's 3x index funds trade every day since 2012. Leverage Shares' 3x sector funds list in London from December 2021, but Yahoo has no prices for them from December 2022 to April 2024, so they enter in April 2024. Signals: the US ETF at the US close for US markets (QQQ, SPY, SMH, GDX), the fund's own London prices for the FTSE 100, DAX and EURO STOXX 50; every trade at the next London open.
 
-| Fund | Tracks | Issuer | Used from | Median GBP traded a day (last year) | Split / consolidation fixed |
-|---|---|---|---|---|---|
-| LQQ3 | Nasdaq-100 3x | WisdomTree | before 2017 | 8,296,679 | - |
-| 3LUS | S&P 500 3x | WisdomTree | before 2017 | 561,335 | - |
-| 3UKL | FTSE 100 3x | WisdomTree | before 2017 | 631,601 | 2026-05-11 x0.05 |
-| 3LDE | DAX 3x | WisdomTree | before 2017 | 54,192 | 2026-05-11 x0.05 |
-| 3LEU | EURO STOXX 50 3x | WisdomTree | before 2017 | 20,414 | 2026-05-11 x0.04 |
-| 3SMH | Semiconductors (SMH) 3x | Leverage Shares | 2024-04-16 | 100,639 | - |
-| 3GDX | Gold miners (GDX) 3x | Leverage Shares | 2024-04-16 | 307,535 | - |
-| 3UKS | FTSE 100 -3x | WisdomTree | before 2017 | 1,325,681 | - |
+| Fund | Tracks | Issuer | Used from | Median GBP traded a day (last year) | Split / consolidation fixed | Untraded days repriced (backtest years) |
+|---|---|---|---|---|---|---|
+| LQQ3 | Nasdaq-100 3x | WisdomTree | before 2017 | 8,296,679 | - | 107 (2017: 17, 2018: 89, 2020: 1) |
+| 3LUS | S&P 500 3x | WisdomTree | before 2017 | 561,335 | - | 121 (2017: 24, 2018: 94, 2020: 3) |
+| 3UKL | FTSE 100 3x | WisdomTree | before 2017 | 631,601 | 2026-05-11 x0.05 | 1 (2018: 1) |
+| 3LDE | DAX 3x | WisdomTree | before 2017 | 54,192 | 2026-05-11 x0.05 | 32 (2017: 6, 2018: 19, 2019: 2, 2020: 3, 2024: 1, 2025: 1) |
+| 3LEU | EURO STOXX 50 3x | WisdomTree | before 2017 | 20,414 | 2026-05-11 x0.04 | 176 (2017: 32, 2018: 123, 2019: 4, 2020: 15, 2025: 2) |
+| 3SMH | Semiconductors (SMH) 3x | Leverage Shares | 2024-04-16 | 100,639 | - | 1 (2025: 1) |
+| 3GDX | Gold miners (GDX) 3x | Leverage Shares | 2024-04-16 | 307,535 | - | 1 (2024: 1) |
+| 3UKS | FTSE 100 -3x | WisdomTree | before 2017 | 1,325,681 | - | 1 (2018: 1) |
 
 Left out: 3XLF: barely trades (about GBP 300 a day; no price range on 26% of days); 3XLE: barely trades (about GBP 8,000 a day; no price range on 17% of days); 3ULS: S&P 500 -3x: its December 2022 consolidation ratio cannot be pinned down from the prices; 3LSI / 3LOI: silver and oil: one day of pence prices, or broken history from late 2020.
 
@@ -21,79 +21,94 @@ Left out: 3XLF: barely trades (about GBP 300 a day; no price range on 26% of day
 
 Benchmark: the S&P 500 in pounds, 13.6% a year (16.3% in 2017-21, 10.9% in 2022-26). 390 settings on these funds; 1 beat it by 15% or more in both 2017-21 and 2022-26 with at least 60% winning trades.
 
-**Recommended: US indices (2), one slot each: IBS < 0.1; sell close > 5-day avg.** Half the ISA in LQQ3 (Nasdaq-100 3x) and half in 3LUS (S&P 500 3x): buy a fund at the London open after its index (QQQ for LQQ3, SPY for 3LUS) closes in the bottom 10% of its day's range, sell at the London open after the index closes above its 5-day average, cash in between. It was picked after seeing the results, but every IBS < 0.1 setting on these two funds beat the S&P in both halves. The European index funds and the short funds made results worse; Leverage Shares' semiconductor and gold miner funds (prices only from April 2024) did not improve it.
+**Recommended: US indices (2), one slot each: IBS < 0.1; sell close > 5-day avg.** Half the ISA in LQQ3 (Nasdaq-100 3x) and half in 3LUS (S&P 500 3x): buy a fund at the London open after its index (QQQ for LQQ3, SPY for 3LUS) closes in the bottom 10% of its day's range, sell at the London open after the index closes above its 5-day average, cash in between. It was picked after seeing the results, but 5 of the 6 IBS < 0.1 settings on these two funds beat the S&P in both halves and the rest were level with it (within 0.5%). The European index funds and the short funds made results worse; Leverage Shares' semiconductor and gold miner funds (prices only from April 2024) did not improve it.
 
 Rows: the recommendation; the rule fixed in advance from the US nine-fund test (backtest/DAILY.md), before any London price was seen (the honest out-of-sample test of that idea); the setting with the best 2017-21 return among those that won at least 60% of their 2017-21 trades; then the settings that beat the S&P by 15% or more in both halves:
 
 | Setting | CAGR | vs S&P 500 | 2017-21 vs S&P | 2022-26 vs S&P | Win rate | Trades per year | Avg hold (sessions) | Max drawdown | Worst year |
 |---|---|---|---|---|---|---|---|---|---|
-| US indices (2), one slot each: IBS < 0.1; sell close > 5-day avg | 30.2% | +16.7% | +20.9% | +12.8% | 69.4% | 37 | 3 | -32.9% | -17.9% |
-| indices + semis and gold miners (7), one slot each: IBS < 0.1; sell close > prior high | 11.2% | -2.3% | -9.6% | +5.1% | 60.5% | 131 | 3 | -40.3% | -20.9% |
-| US indices (2), one slot each: IBS < 0.2; sell close > 5-day avg | 27.0% | +13.5% | +24.1% | +4.1% | 66.3% | 58 | 3 | -45.6% | -39.6% |
-| US indices (2), one slot each: IBS < 0.1; sell RSI(2) > 70 | 30.2% | +16.7% | +18.1% | +15.3% | 69.3% | 34 | 4 | -43.5% | -37.7% |
+| US indices (2), one slot each: IBS < 0.1; sell close > 5-day avg | 30.8% | +17.2% | +22.0% | +12.8% | 70.0% | 37 | 3 | -32.9% | -4.6% |
+| indices + semis and gold miners (7), one slot each: IBS < 0.1; sell close > prior high | 12.0% | -1.6% | -7.7% | +4.7% | 60.9% | 132 | 3 | -34.7% | -14.5% |
+| US indices (2), one slot each: IBS < 0.2; sell RSI(2) > 70 | 27.9% | +14.4% | +30.3% | +0.7% | 67.8% | 52 | 4 | -49.1% | -26.2% |
+| US indices (2), one slot each: IBS < 0.1; sell RSI(2) > 70 | 34.0% | +20.5% | +26.0% | +15.3% | 69.6% | 34 | 4 | -42.6% | -17.9% |
 
 By fund set and number of places:
 
 | Funds and places | Settings | Median CAGR | Median vs S&P | Median 2017-21 vs S&P | Median 2022-26 vs S&P | Median win rate | Median max drawdown |
 |---|---|---|---|---|---|---|---|
-| US indices (2), one slot each | 30 | 17.2% | +3.7% | -1.5% | +4.7% | 67.0% | -47.7% |
-| US indices + semis and gold miners (4), one slot each | 30 | 17.4% | +3.8% | -8.5% | +14.0% | 67.6% | -28.5% |
-| US indices + semis and gold miners (4), up to 2 at a time | 30 | 21.0% | +7.5% | -2.3% | +13.5% | 66.6% | -49.5% |
-| US indices + semis and gold miners (4), up to 3 at a time | 30 | 19.3% | +5.8% | -4.7% | +13.7% | 66.9% | -37.8% |
-| WisdomTree indices (5), one slot each | 30 | 8.2% | -5.3% | -9.1% | -1.3% | 62.6% | -48.1% |
-| WisdomTree indices (5), up to 2 at a time | 30 | 8.1% | -5.5% | -5.2% | -0.1% | 62.4% | -66.3% |
-| WisdomTree indices (5), up to 3 at a time | 30 | 9.6% | -4.0% | -8.5% | +0.0% | 62.0% | -61.2% |
-| indices + semis and gold miners (7), one slot each | 30 | 10.5% | -3.1% | -10.4% | +5.2% | 63.4% | -35.9% |
-| indices + semis and gold miners (7), up to 2 at a time | 30 | 11.0% | -2.6% | -5.1% | +3.0% | 62.5% | -64.8% |
-| indices + semis and gold miners (7), up to 3 at a time | 30 | 12.2% | -1.4% | -5.1% | +4.7% | 62.8% | -59.3% |
-| 7 longs + FTSE 100 short (8), one slot each | 30 | 8.2% | -5.3% | -11.4% | +1.8% | 62.6% | -35.1% |
-| 7 longs + FTSE 100 short (8), up to 2 at a time | 30 | 4.8% | -8.7% | -9.0% | -7.0% | 60.8% | -65.5% |
-| 7 longs + FTSE 100 short (8), up to 3 at a time | 30 | 8.2% | -5.3% | -6.5% | -1.0% | 61.6% | -57.9% |
+| US indices (2), one slot each | 30 | 21.0% | +7.5% | +5.0% | +4.7% | 69.9% | -41.7% |
+| US indices + semis and gold miners (4), one slot each | 30 | 18.2% | +4.7% | -5.3% | +14.0% | 69.3% | -27.4% |
+| US indices + semis and gold miners (4), up to 2 at a time | 30 | 23.7% | +10.2% | +3.0% | +14.2% | 68.5% | -46.4% |
+| US indices + semis and gold miners (4), up to 3 at a time | 30 | 20.8% | +7.3% | -1.0% | +13.7% | 68.9% | -36.9% |
+| WisdomTree indices (5), one slot each | 30 | 8.7% | -4.8% | -7.3% | -1.5% | 63.9% | -43.9% |
+| WisdomTree indices (5), up to 2 at a time | 30 | 10.3% | -3.3% | -2.7% | -0.9% | 63.7% | -62.1% |
+| WisdomTree indices (5), up to 3 at a time | 30 | 11.4% | -2.2% | -4.5% | -1.3% | 63.6% | -59.0% |
+| indices + semis and gold miners (7), one slot each | 30 | 10.6% | -2.9% | -9.4% | +5.1% | 64.6% | -32.3% |
+| indices + semis and gold miners (7), up to 2 at a time | 30 | 11.4% | -2.2% | -1.8% | +1.9% | 63.9% | -62.8% |
+| indices + semis and gold miners (7), up to 3 at a time | 30 | 13.6% | +0.0% | -2.1% | +3.9% | 64.1% | -58.1% |
+| 7 longs + FTSE 100 short (8), one slot each | 30 | 8.7% | -4.9% | -10.4% | +1.8% | 63.2% | -31.5% |
+| 7 longs + FTSE 100 short (8), up to 2 at a time | 30 | 5.6% | -7.9% | -6.8% | -8.8% | 62.2% | -62.9% |
+| 7 longs + FTSE 100 short (8), up to 3 at a time | 30 | 9.4% | -4.2% | -4.6% | -1.9% | 62.9% | -56.4% |
 
-Adding the FTSE 100 3x short fund (bought after short rises while the FTSE is below its 200-day average) changed the yearly return by -3.1% (median over 90 settings; 0% improved) and the max drawdown by -0.5%.
+Adding the FTSE 100 3x short fund (bought after short rises while the FTSE is below its 200-day average) changed the yearly return by -3.2% (median over 90 settings; 0% improved) and the max drawdown by -0.5%.
 
 Calendar years:
 
 | Year | Recommended | Rule fixed in advance (7 funds) | S&P 500 in pounds |
 |---|---|---|---|
-| 2017 | +23.8% | +10.9% | +11.5% |
-| 2018 | -17.9% | -20.9% | +0.4% |
+| 2017 | +10.8% | +11.1% | +11.5% |
+| 2018 | -4.6% | -14.5% | +0.4% |
 | 2019 | +35.8% | +12.0% | +25.8% |
-| 2020 | +117.8% | +20.0% | +14.7% |
+| 2020 | +117.8% | +20.7% | +14.7% |
 | 2021 | +57.2% | +16.8% | +30.1% |
 | 2022 | +13.6% | -4.7% | -8.6% |
 | 2023 | +28.7% | +11.0% | +19.3% |
 | 2024 | +54.7% | +14.1% | +27.2% |
-| 2025 | +3.1% | +39.9% | +9.4% |
+| 2025 | +3.1% | +37.2% | +9.4% |
 | 2026 | +20.7% | +22.1% | +9.0% |
 
-Where the recommendation made its money (share of summed trade returns, trades): LQQ3 57% (185), 3LUS 43% (178).
-Where the rule fixed in advance made its money (share of summed trade returns, trades): LQQ3 36% (171), 3LUS 24% (170), 3GDX 20% (53), 3SMH 13% (42), 3UKL 8% (266), 3LDE 1% (335), 3LEU -3% (246).
+Where the recommendation made its money (share of summed trade returns, trades): LQQ3 58% (185), 3LUS 42% (178).
+Where the rule fixed in advance made its money (share of summed trade returns, trades): LQQ3 36% (171), 3LUS 25% (170), 3GDX 19% (53), 3SMH 12% (42), 3UKL 8% (266), 3LDE 3% (339), 3LEU -4% (249).
 
-Worst trades of the recommendation: 3LUS 2018-01-30 to 2018-02-13 -24.7%, 3LUS 2022-06-10 to 2022-06-22 -21.7%, LQQ3 2022-06-10 to 2022-06-22 -20.7%, 3LUS 2018-03-19 to 2018-04-03 -20.2%, LQQ3 2018-12-17 to 2018-12-27 -19.6%.
+Worst trades of the recommendation: 3LUS 2022-06-10 to 2022-06-22 -21.7%, LQQ3 2022-06-10 to 2022-06-22 -20.7%, LQQ3 2018-12-17 to 2018-12-27 -19.6%, 3LUS 2018-01-30 to 2018-02-13 -19.5%, LQQ3 2025-02-24 to 2025-03-06 -18.6%.
+
+## Without the biggest winners
+
+2020 (the crash and the rebound) was the recommendation's best year. Its daily returns taken out, the rest chained together (all lines over the same years):
+
+| Rule | All years | Without 2020 | Without its own best year | Max drawdown | Max drawdown without 2020 |
+|---|---|---|---|---|---|
+| Recommended | 30.8% | 23.4% | 23.4% (no 2020) | -33% | -33% |
+| S&P 500 in pounds | 13.6% | 13.4% | 11.8% (no 2021) | -25% | -22% |
+| Your current rule (LQQ3 above its 200-day avg) | 29.1% | 22.5% | 21.3% (no 2023) | -56% | -55% |
+| LQQ3 buy and hold | 30.9% | 23.2% | 19.5% (no 2023) | -79% | -79% |
+
+2017-21 without 2020: 23.2% a year against 16.7% for the S&P 500 in pounds (2022-26 unchanged). Trades in 2020: 43 of 363; win rate without them 69%.
+
+With its best trades taken out (the money stays in cash for those sessions): 5 best: 25.6% a year (+12.0% against the S&P); 10 best: 21.9% a year (+8.3% against the S&P); 20 best: 16.3% a year (+2.7% against the S&P). The ten best: 3LUS 2020-03-23 +22%, LQQ3 2022-11-10 +20%, LQQ3 2020-04-21 +17%, 3LUS 2020-04-08 +15%, 3LUS 2020-04-21 +14%, 3LUS 2022-11-10 +14%, 3LUS 2020-05-13 +13%, LQQ3 2018-02-22 +12%, LQQ3 2024-05-01 +12%, LQQ3 2020-11-10 +11%.
 
 
 ## Two funds only: LQQ3 and 3LUS (the earlier test)
 
 Generated by `python -m backtest.isa` on 2026-11-19. See the module docstring for the rules. Real London prices of LQQ3 (3x Nasdaq-100) and 3LUS (3x S&P 500) in pence; signals at the US close, trades at the next London open, 10 bps a side, sterling interest on idle cash. Benchmark: the S&P 500 in pounds, 13.6% a year (16.3% in 2017-21, 10.9% in 2022-26). Targets: at least 60% winning trades and 15% a year above the S&P 500.
 
-208 settings tested; 11 reached both targets over the whole period and 1 in both 2017-21 and 2022-26.
+208 settings tested; 17 reached both targets over the whole period and 1 in both 2017-21 and 2022-26.
 
 By portfolio:
 
 | Portfolio | Settings | Median CAGR | Median vs S&P | Median 2022-26 vs S&P | Median win rate | Median max drawdown | Beat S&P by 15%+ in both halves |
 |---|---|---|---|---|---|---|---|
-| LQQ3 alone | 52 | 16.1% | +2.6% | +3.5% | 66.8% | -44.8% | 0 |
-| 3LUS alone | 52 | 6.7% | -6.9% | +3.1% | 66.9% | -58.6% | 0 |
-| both funds, half each | 52 | 12.2% | -1.3% | +4.1% | 66.6% | -48.1% | 1 |
-| one at a time, all in, more oversold first | 52 | 10.1% | -3.5% | +0.4% | 66.3% | -57.6% | 0 |
+| LQQ3 alone | 52 | 19.5% | +6.0% | +3.5% | 69.3% | -41.7% | 0 |
+| 3LUS alone | 52 | 9.0% | -4.6% | +3.1% | 70.2% | -48.2% | 0 |
+| both funds, half each | 52 | 14.6% | +1.0% | +4.1% | 69.9% | -41.4% | 1 |
+| one at a time, all in, more oversold first | 52 | 12.9% | -0.6% | +0.4% | 69.5% | -46.2% | 0 |
 
 The pick chosen on 2017-21 only (best return among settings that won at least 60% of their 2017-21 trades) first, then the settings that beat the S&P by 15% or more in both halves:
 
 | Setting | CAGR | vs S&P 500 | 2017-21 vs S&P | 2022-26 vs S&P | Win rate | Trades per year | Avg hold (sessions) | Max drawdown | Worst year |
 |---|---|---|---|---|---|---|---|---|---|
-| LQQ3 alone: IBS < 0.2, above 200-day; sell RSI(2) > 70 | 27.6% | +14.1% | +41.9% | -8.0% | 66.7% | 21 | 4 | -37.1% | -14.8% |
-| both funds, half each: IBS < 0.1; sell RSI(2) > 70 | 30.2% | +16.7% | +18.1% | +15.3% | 69.3% | 34 | 4 | -43.5% | -37.7% |
+| LQQ3 alone: IBS < 0.2, above 200-day; sell RSI(2) > 70 | 33.4% | +19.8% | +56.4% | -8.0% | 68.1% | 21 | 4 | -34.4% | -14.8% |
+| both funds, half each: IBS < 0.1; sell RSI(2) > 70 | 34.0% | +20.5% | +26.0% | +15.3% | 69.6% | 34 | 4 | -42.6% | -17.9% |
 
 For comparison:
 
@@ -108,37 +123,37 @@ Every IBS < 0.1 setting, best first. Picked out after seeing the results, so tre
 
 | Setting | CAGR | vs S&P 500 | 2017-21 vs S&P | 2022-26 vs S&P | Win rate | Trades per year | Avg hold (sessions) | Max drawdown | Worst year |
 |---|---|---|---|---|---|---|---|---|---|
-| LQQ3 alone: IBS < 0.1; sell RSI(2) > 70 | 34.9% | +21.4% | +29.3% | +14.1% | 68.0% | 17 | 4 | -45.2% | -29.3% |
-| LQQ3 alone: IBS < 0.1; sell close > 5-day avg | 34.2% | +20.7% | +31.7% | +10.8% | 69.2% | 19 | 3 | -38.6% | -5.3% |
-| LQQ3 alone: IBS < 0.1; sell close > prior high | 32.8% | +19.3% | +29.0% | +10.5% | 70.2% | 17 | 4 | -41.4% | -23.0% |
-| LQQ3 alone: IBS < 0.1, above 200-day; sell RSI(2) > 70 | 30.7% | +17.1% | +32.8% | +3.5% | 69.6% | 14 | 4 | -37.8% | -16.6% |
-| LQQ3 alone: IBS < 0.1, above 200-day; sell close > 5-day avg | 30.3% | +16.8% | +31.3% | +4.1% | 70.0% | 15 | 3 | -30.3% | -16.6% |
-| both funds, half each: IBS < 0.1; sell close > 5-day avg | 30.2% | +16.7% | +20.9% | +12.8% | 69.4% | 37 | 3 | -32.9% | -17.9% |
-| both funds, half each: IBS < 0.1; sell RSI(2) > 70 | 30.2% | +16.7% | +18.1% | +15.3% | 69.3% | 34 | 4 | -43.5% | -37.7% |
-| LQQ3 alone: IBS < 0.1, above 200-day; sell close > prior high | 28.6% | +15.0% | +29.2% | +2.7% | 71.0% | 14 | 4 | -36.9% | -16.6% |
-| one at a time, all in, more oversold first: IBS < 0.1; sell RSI(2) > 70 | 27.7% | +14.2% | +14.0% | +14.3% | 68.3% | 21 | 4 | -55.1% | -43.9% |
-| both funds, half each: IBS < 0.1; sell close > prior high | 27.2% | +13.6% | +18.8% | +8.9% | 70.1% | 35 | 3 | -42.6% | -38.1% |
-| one at a time, all in, more oversold first: IBS < 0.1; sell close > 5-day avg | 26.6% | +13.1% | +19.2% | +7.4% | 68.1% | 24 | 3 | -49.1% | -35.6% |
-| one at a time, all in, more oversold first: IBS < 0.1; sell close > prior high | 25.0% | +11.5% | +19.5% | +4.2% | 70.1% | 22 | 4 | -53.8% | -43.8% |
-| 3LUS alone: IBS < 0.1; sell close > 5-day avg | 24.8% | +11.3% | +8.8% | +13.6% | 69.7% | 18 | 3 | -46.3% | -35.0% |
-| 3LUS alone: IBS < 0.1; sell RSI(2) > 70 | 24.4% | +10.9% | +6.4% | +15.3% | 70.5% | 17 | 4 | -62.6% | -46.6% |
-| one at a time, all in, more oversold first: IBS < 0.1, above 200-day; sell RSI(2) > 70 | 23.9% | +10.3% | +17.2% | +4.0% | 69.0% | 17 | 4 | -46.6% | -22.8% |
-| both funds, half each: IBS < 0.1, above 200-day; sell RSI(2) > 70 | 23.6% | +10.1% | +15.3% | +5.2% | 70.3% | 27 | 4 | -36.6% | -17.9% |
-| one at a time, all in, more oversold first: IBS < 0.1, above 200-day; sell close > 5-day avg | 22.0% | +8.4% | +18.3% | -0.4% | 68.9% | 19 | 3 | -35.7% | -20.4% |
-| both funds, half each: IBS < 0.1, above 200-day; sell close > 5-day avg | 21.7% | +8.1% | +11.7% | +4.7% | 69.6% | 30 | 3 | -25.6% | -14.7% |
-| one at a time, all in, more oversold first: IBS < 0.1, above 200-day; sell close > prior high | 21.2% | +7.7% | +19.4% | -2.6% | 71.4% | 18 | 4 | -39.2% | -18.5% |
-| 3LUS alone: IBS < 0.1; sell close > prior high | 20.7% | +7.1% | +7.8% | +6.4% | 70.0% | 17 | 3 | -64.3% | -51.7% |
-| both funds, half each: IBS < 0.1, above 200-day; sell close > prior high | 19.8% | +6.3% | +13.2% | -0.0% | 70.4% | 28 | 4 | -29.5% | -16.2% |
-| 3LUS alone: IBS < 0.1, above 200-day; sell RSI(2) > 70 | 16.0% | +2.4% | -1.3% | +6.1% | 71.0% | 13 | 4 | -51.4% | -27.2% |
-| 3LUS alone: IBS < 0.1, above 200-day; sell close > 5-day avg | 12.4% | -1.1% | -7.0% | +4.8% | 69.1% | 14 | 3 | -49.8% | -37.1% |
-| 3LUS alone: IBS < 0.1, above 200-day; sell close > prior high | 10.6% | -2.9% | -2.5% | -3.3% | 69.7% | 13 | 4 | -53.8% | -37.6% |
+| LQQ3 alone: IBS < 0.1; sell RSI(2) > 70 | 40.9% | +27.4% | +42.5% | +14.1% | 68.0% | 17 | 4 | -45.2% | -10.8% |
+| LQQ3 alone: IBS < 0.1, above 200-day; sell RSI(2) > 70 | 36.5% | +22.9% | +46.3% | +3.5% | 69.6% | 14 | 4 | -37.8% | -16.6% |
+| LQQ3 alone: IBS < 0.1; sell close > 5-day avg | 35.7% | +22.1% | +34.9% | +10.8% | 69.2% | 19 | 3 | -38.6% | -5.3% |
+| LQQ3 alone: IBS < 0.1; sell close > prior high | 34.9% | +21.4% | +33.7% | +10.5% | 70.8% | 17 | 4 | -41.4% | -13.1% |
+| both funds, half each: IBS < 0.1; sell RSI(2) > 70 | 34.0% | +20.5% | +26.0% | +15.3% | 69.6% | 34 | 4 | -42.6% | -17.9% |
+| LQQ3 alone: IBS < 0.1, above 200-day; sell close > 5-day avg | 31.7% | +18.2% | +34.6% | +4.1% | 70.0% | 15 | 3 | -30.3% | -16.6% |
+| both funds, half each: IBS < 0.1; sell close > 5-day avg | 30.8% | +17.2% | +22.0% | +12.8% | 70.0% | 37 | 3 | -32.9% | -4.6% |
+| LQQ3 alone: IBS < 0.1, above 200-day; sell close > prior high | 30.7% | +17.1% | +33.9% | +2.7% | 71.7% | 14 | 4 | -36.9% | -16.6% |
+| one at a time, all in, more oversold first: IBS < 0.1; sell RSI(2) > 70 | 30.3% | +16.7% | +19.3% | +14.3% | 68.8% | 21 | 4 | -45.6% | -32.0% |
+| both funds, half each: IBS < 0.1; sell close > prior high | 29.7% | +16.1% | +24.1% | +8.9% | 70.4% | 35 | 3 | -38.4% | -26.3% |
+| both funds, half each: IBS < 0.1, above 200-day; sell RSI(2) > 70 | 27.1% | +13.6% | +22.9% | +5.2% | 70.6% | 27 | 4 | -29.4% | -9.8% |
+| one at a time, all in, more oversold first: IBS < 0.1; sell close > prior high | 26.8% | +13.3% | +23.4% | +4.2% | 70.1% | 22 | 4 | -43.6% | -35.5% |
+| one at a time, all in, more oversold first: IBS < 0.1, above 200-day; sell RSI(2) > 70 | 26.2% | +12.6% | +22.3% | +4.0% | 69.6% | 17 | 4 | -37.5% | -13.8% |
+| 3LUS alone: IBS < 0.1; sell RSI(2) > 70 | 26.1% | +12.6% | +9.8% | +15.3% | 71.1% | 17 | 4 | -48.6% | -39.3% |
+| one at a time, all in, more oversold first: IBS < 0.1; sell close > 5-day avg | 25.6% | +12.0% | +17.0% | +7.4% | 69.0% | 24 | 3 | -44.8% | -27.4% |
+| 3LUS alone: IBS < 0.1; sell close > 5-day avg | 24.8% | +11.2% | +8.7% | +13.6% | 70.8% | 18 | 3 | -38.8% | -21.0% |
+| 3LUS alone: IBS < 0.1; sell close > prior high | 23.6% | +10.1% | +14.0% | +6.4% | 70.0% | 17 | 3 | -44.5% | -38.6% |
+| one at a time, all in, more oversold first: IBS < 0.1, above 200-day; sell close > prior high | 22.8% | +9.2% | +22.8% | -2.6% | 71.4% | 18 | 4 | -34.4% | -13.8% |
+| both funds, half each: IBS < 0.1, above 200-day; sell close > prior high | 22.1% | +8.6% | +18.2% | -0.0% | 70.7% | 28 | 4 | -29.5% | -9.8% |
+| both funds, half each: IBS < 0.1, above 200-day; sell close > 5-day avg | 22.1% | +8.5% | +12.6% | +4.7% | 69.9% | 30 | 3 | -23.2% | -9.8% |
+| one at a time, all in, more oversold first: IBS < 0.1, above 200-day; sell close > 5-day avg | 20.8% | +7.2% | +15.7% | -0.4% | 69.5% | 19 | 3 | -32.7% | -13.8% |
+| 3LUS alone: IBS < 0.1, above 200-day; sell RSI(2) > 70 | 17.4% | +3.8% | +1.4% | +6.1% | 71.8% | 13 | 4 | -36.4% | -18.5% |
+| 3LUS alone: IBS < 0.1, above 200-day; sell close > prior high | 13.2% | -0.3% | +2.8% | -3.3% | 69.7% | 13 | 4 | -33.9% | -21.8% |
+| 3LUS alone: IBS < 0.1, above 200-day; sell close > 5-day avg | 12.2% | -1.4% | -7.4% | +4.8% | 69.8% | 14 | 3 | -40.8% | -24.6% |
 
 ## Calendar years
 
 | Year | LQQ3 alone: IBS < 0.2, above 200-day; sell RSI(2) > 70 | both funds, half each: IBS < 0.1; sell RSI(2) > 70 | S&P 500 in pounds |
 |---|---|---|---|
-| 2017 | +40.9% | +14.4% | +11.5% |
-| 2018 | -12.1% | -37.7% | +0.4% |
+| 2017 | +44.2% | +15.1% | +11.5% |
+| 2018 | +32.0% | -17.9% | +0.4% |
 | 2019 | +36.1% | +46.1% | +25.8% |
 | 2020 | +278.7% | +148.1% | +14.7% |
 | 2021 | +49.3% | +65.3% | +30.1% |
@@ -148,7 +163,7 @@ Every IBS < 0.1 setting, best first. Picked out after seeing the results, so tre
 | 2025 | -9.1% | -5.4% | +9.4% |
 | 2026 | -7.5% | +17.4% | +9.0% |
 
-Worst trades of the 2017-21 pick: LQQ3 2025-02-24 to 2025-03-18 -28.4%, LQQ3 2018-03-14 to 2018-04-05 -20.9%, LQQ3 2026-10-07 to 2026-10-22 -18.9%, LQQ3 2022-01-14 to 2022-01-31 -18.0%, LQQ3 2018-02-05 to 2018-02-14 -14.0%.
+Worst trades of the 2017-21 pick: LQQ3 2025-02-24 to 2025-03-18 -28.4%, LQQ3 2018-03-14 to 2018-04-05 -20.9%, LQQ3 2026-10-07 to 2026-10-22 -18.9%, LQQ3 2022-01-14 to 2022-01-31 -18.0%, LQQ3 2023-10-16 to 2023-11-01 -13.6%.
 
 ## Would 3x short funds help? (tested on the US funds)
 
@@ -225,3 +240,4 @@ Trend rules (hold the 3x fund above the 200-day average; below it hold cash, or 
 - 208 settings were tried; whole-period winners are flattered by selection. The pick was chosen on 2017-21 only, so its 2022-26 column is the honest test.
 - 3x funds can lose most of their value in a crash, and nothing can be sold before the next London open after a US-close signal; the London open of a 3x fund can also have a wide spread.
 - The short-side test uses US funds at the US open; London short funds trade at the London open, which the long-side results show can cost several points a year.
+- Prices on days nothing traded: Yahoo often repeats the last price (about a third of 2018 for LQQ3 and 3LUS) and sometimes shows a false one (3LUS, 3LDE and 3LEU +15-27% on 26-27 June 2017, back the next day). Those days are valued at the price implied by the index since the last real price (fill_stale_prints; within about 2% a day of real prices where both exist), so trades happen on schedule as with a market maker's quote. Trading at the stale or false prices instead would move single years by more than ten points, so 2017-18 are the least certain years.

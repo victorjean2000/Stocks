@@ -57,3 +57,13 @@ def test_a_consolidation_is_undone_and_real_moves_are_kept():
     split.iloc[:30] = fund.iloc[:30].to_frame().to_numpy().repeat(4, axis=1)
     fixed, fixes = adjust_actions(split, under, 3)
     assert [f[2] for f in fixes] == [0.05] and np.allclose(fixed["close"], fund / 20)
+
+
+def test_without_years_chains_the_other_years():
+    from backtest.isa import without_years
+    idx = pd.bdate_range("2019-01-01", "2021-12-31")
+    r = pd.Series(0.0, index=idx)
+    r[idx.year == 2020] = 0.01  # all the growth in 2020
+    eq = (1 + r).cumprod()
+    assert without_years(eq, [2020])["CAGR"] == pytest.approx(0.0, abs=1e-12)
+    assert without_years(eq)["CAGR"] > 0.5

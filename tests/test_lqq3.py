@@ -83,3 +83,26 @@ def test_lqq3_trades_compound_to_the_strategy_equity():
     t = lqq3_trades(lq, on, start=str(lse[1].date()))
     assert len(t) == 2 and (t["entry"] == [lse[2], lse[6]]).all()  # the US close of day k trades at London k+1
     assert eq.iloc[-1] / eq.iloc[0] == pytest.approx(float(np.prod(1 + t["ret"])), rel=1e-9)
+
+
+def test_untraded_repeats_and_false_prices_take_the_index_implied_value():
+    import numpy as np
+
+    from backtest.lqq3 import fill_stale_prints
+    idx = pd.bdate_range("2020-01-01", periods=60)
+    under = pd.Series(100 * np.cumprod(1 + np.random.default_rng(5).normal(0, 0.01, 60)), index=idx)
+    path = (1 + 3 * under.pct_change().fillna(0.0)).cumprod()
+    fair = 1000 * np.sqrt(path * path.shift(1))  # London closes midway between two US closes
+    df = pd.DataFrame({"open": fair, "high": fair, "low": fair, "close": fair, "volume": 100.0}, index=idx).iloc[1:]
+    df.iloc[20:25, :4] = df["close"].iloc[19]  # a stale run: the last price repeated, nothing traded
+    df.iloc[20:25, 4] = 0.0
+    df.iloc[40, :4] *= 1.3  # a false price on an untraded day
+    df.iloc[40, 4] = 0.0
+    df.iloc[30, 4] = 0.0  # an untraded day at the right price
+    df.iloc[50, :4] *= 1.3  # a traded day is never changed
+    out = fill_stale_prints(df, under, 3)
+    want = fair.iloc[1:].copy()
+    want.iloc[50] *= 1.3
+    for col in ("open", "high", "low", "close"):
+        assert np.allclose(out[col], want)
+    assert out["volume"].equals(df["volume"])

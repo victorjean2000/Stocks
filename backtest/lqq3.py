@@ -4,7 +4,8 @@ The trend rule: hold LQQ3 while QQQ closes above its 200-day average, otherwise 
 the US close, after London has shut, so each switch trades at LQQ3's open in the next London session.
 
 Sources: LQQ3.L daily prices from Yahoo Finance, the one source outside Alpaca and SEC EDGAR, approved by
-the user on 2026-11-05 for LQQ3 only (cached in data/benchmarks/, never committed). Everything else comes
+the user on 2026-11-05 for LQQ3 only (cached in data/benchmarks/, never committed). Untraded days whose price is
+stale or false are valued at the price implied by 3x QQQ in pounds (fill_stale_prints). Everything else comes
 from Alpaca: QQQ for the signal, SPY for the S&P 500, and FXB (Invesco CurrencyShares British Pound) for the
 pound/dollar rate and for sterling cash interest (what FXB's pound deposits paid after its 0.40% fee, about
 0% until 2022: conservative next to a money-market fund).
@@ -51,6 +52,40 @@ def drop_bad_prints(df: pd.DataFrame, jump: float = 0.15) -> pd.DataFrame:
     flat = (df["open"] == df["high"]) & (df["high"] == df["low"]) & (df["low"] == df["close"])
     spike = (up.abs() > jump) & (down.abs() > jump) & (np.sign(up) == np.sign(down)) & flat
     return df[~spike.fillna(False)]
+
+
+def fill_stale_prints(df: pd.DataFrame, under: pd.Series, lev: float, gbpusd: pd.Series | None = None,
+                      tol: float = 0.10) -> pd.DataFrame:
+    """Replace London prices that no trade backs (volume 0) and that are not real prices with the fund's value
+    implied by its index, so a backtest trades on the day at about what a market maker would quote, as a real
+    investor could: a repeat of the previous close (Yahoo carries the last price forward on quiet days: about a
+    third of 2018 for LQQ3 and 3LUS, through index moves of up to 4% a day), or a close more than `tol` off the
+    fund's path (against the local median of fund / path over 21 sessions; seen: 3LUS +27% on 26 and 27 June 2017
+    with no volume, back the next day). The path is lev x the daily moves of `under` (its US underlying), in
+    pounds when gbpusd is given, taken midway between the US closes either side of the London close (London shuts
+    at 11:30 in New York). A replaced day is a flat bar at the last real close times the path since then, like
+    the other untraded days. Days with trades are kept as they are."""
+    out = df.copy()
+    path = (1 + lev * under.dropna().pct_change().fillna(0.0)).cumprod()
+    if gbpusd is not None:
+        path = path / gbpusd.reindex(path.index).ffill().bfill()
+    us, p = path.index, path.to_numpy()
+    before = us.searchsorted(out.index, side="left") - 1  # the last US close before the London day
+    upto = us.searchsorted(out.index, side="right") - 1  # that day's US close (after London shuts), if any
+    mid = np.where(before >= 0, np.sqrt(p[np.clip(before, 0, None)] * p[np.clip(upto, 0, None)]), np.nan)
+    c = out["close"].to_numpy(float)
+    vol0 = (out["volume"].fillna(0) <= 0).to_numpy()
+    repeat = vol0 & np.r_[False, c[1:] == c[:-1]]
+    rel = pd.Series(np.where(repeat, np.nan, c / mid), index=out.index)
+    off = vol0 & ((rel / rel.rolling(21, center=True, min_periods=5).median() - 1).abs() > tol).to_numpy()
+    bad = repeat | off
+    last = pd.Series(np.where(bad, np.nan, np.arange(len(c)))).ffill().to_numpy()
+    fix = bad & np.isfinite(last) & np.isfinite(mid)
+    j = last[fix].astype(int)
+    value = c[j] / mid[j] * mid[fix]
+    for col in ("open", "high", "low", "close"):
+        out.loc[out.index[fix], col] = value
+    return out
 
 
 # London-listed funds whose Yahoo prices the user approved (CLAUDE.md), and when
@@ -228,9 +263,11 @@ def shadow(start: str = SHADOW_START) -> dict:
 
 
 def report() -> str:
-    lq = fetch_lqq3(max_age_days=4)
     us = alpaca_daily(["QQQ", "SPY"])
     gbpusd, cash = sterling()
+    raw = fetch_lqq3(max_age_days=4)
+    lq = fill_stale_prints(raw, us["QQQ"], 3, gbpusd)
+    stale = int(((lq["close"] != raw["close"]) & (lq.index >= pd.Timestamp(START))).sum())
     qqq = us["QQQ"]
     base, _ = lqq3_strategy(lq, qqq, cash)
     rows = {"LQQ3 when QQQ > 200-day avg (real prices)": base}
@@ -282,7 +319,9 @@ def report() -> str:
         "## Calendar-year returns (pounds)", "", md(years, "Strategy"), "",
         "## Data and assumptions", "",
         "- LQQ3 prices: Yahoo Finance daily bars for LQQ3.L (approved for this one series). Isolated bad prints are "
-        "removed (24 Oct 2025: a flat bar at +39% with no volume).",
+        "removed (24 Oct 2025: a flat bar at +39% with no volume). On days nothing traded Yahoo often repeats the "
+        f"last price (about a third of 2018); those {stale} days are valued at the price implied by 3x QQQ in "
+        "pounds since the last real price (fill_stale_prints), which comes within about 2% of real prices.",
         "- Signal: QQQ adjusted close from Alpaca. S&P 500: SPY total return from Alpaca, converted to pounds with "
         "FXB (pound sterling trust) as the exchange rate. A sterling S&P 500 fund (VUSA, CSP1) loses about 0.2% a "
         "year more to US dividend withholding.",
@@ -367,11 +406,11 @@ def dfmt(df: pd.DataFrame) -> pd.DataFrame:
 
 def dip_report() -> str:
     from .strategies import etf_bars
-    lq = fetch_lqq3(max_age_days=4)
     eb = etf_bars()
     bars = {t: eb[eb["ticker"] == t].set_index("date")[["o", "h", "l", "c"]].astype(float).sort_index()
             for t in ("QQQ", "SPY", "TQQQ", "BIL")}
     gbpusd, cash = sterling()
+    lq = fill_stale_prints(fetch_lqq3(max_age_days=4), bars["QQQ"]["c"], 3, gbpusd)
     rows, curves, trades = {}, {}, {}
     bench = None
     for label, kw in dip_variants():
@@ -455,7 +494,10 @@ def dip_report() -> str:
               "- The London open of a 3x fund can have a wide spread; the close (16:30 UK, with the US market open) "
               "is usually tighter. Platform commissions come on top; inside an ISA there is no tax on the gains.",
               "- A 3x fund can lose most of its value in a crash; nothing can be sold before the next London "
-              "session after a US-close signal."]
+              "session after a US-close signal.",
+              "- On days nothing traded, Yahoo often repeats LQQ3's last price (about a third of 2018); those days are "
+              "valued at the price implied by 3x QQQ in pounds (fill_stale_prints). Trading at the stale prices "
+              "instead would move single years by tens of points, so 2017-18 are the least certain years."]
     out = "\n".join(lines)
     out_dir = paths().root / "backtests" / "lqq3"
     out_dir.mkdir(parents=True, exist_ok=True)

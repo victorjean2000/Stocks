@@ -1,7 +1,7 @@
 """Daily strategies for a sterling ISA, with London-listed 3x funds from WisdomTree and Leverage Shares.
 
 UNIVERSE: the 3x funds in the user's ISA with usable London prices (Yahoo, approved; splits and consolidations undone
-by adjust_actions): WisdomTree LQQ3 (Nasdaq-100), 3LUS (S&P 500), 3UKL (FTSE 100), 3LDE (DAX), 3LEU (EURO STOXX 50),
+by adjust_actions; untraded days with a stale or false price valued from the index by fill_stale_prints): WisdomTree LQQ3 (Nasdaq-100), 3LUS (S&P 500), 3UKL (FTSE 100), 3LDE (DAX), 3LEU (EURO STOXX 50),
 3UKS (FTSE 100 -3x); Leverage Shares 3SMH (semiconductors) and 3GDX (gold miners), from April 2024 (Yahoo has no
 prices from December 2022). Left out with reasons: EXCLUDED. The dip rules run on fund sets (US indices; plus sectors;
 plus European indices; plus the FTSE short) with one place per fund or up to 2 / 3 at a time. RECOMMENDED is the
@@ -37,7 +37,7 @@ from stockdata.config import REPO_ROOT, paths
 
 from .daily import ENTRIES, ENTRY_LABEL, EXIT_LABEL, EXITS, dip_signals, run
 from .indicators import regime, rsi
-from .lqq3 import COST_BPS, dfmt, dip_measures, dip_state, fetch_yahoo, sterling, to_gbp
+from .lqq3 import COST_BPS, dfmt, dip_measures, dip_state, fetch_yahoo, fill_stale_prints, sterling, to_gbp
 from .momentum_trend import md, stats
 from .strategies import SPLIT, START, yearly_returns
 
@@ -84,13 +84,18 @@ def trades_frame(tr: list, dates: pd.DatetimeIndex, names: list[str]) -> pd.Data
 # ------------------------------------------------------------------ ISA: London funds
 
 def isa_run(funds: dict[str, pd.DataFrame], states: dict[str, pd.Series], scores: dict[str, pd.Series], n_pos: int,
-            cash_r: np.ndarray, lse: pd.DatetimeIndex, i0: int, cost_bps: float = COST_BPS):
+            cash_r: np.ndarray, lse: pd.DatetimeIndex, i0: int, cost_bps: float = COST_BPS,
+            block: dict[str, np.ndarray] | None = None):
     """Hold each fund on the London sessions its US-close state asks for, at most n_pos at 1/n_pos of the account
-    (the higher score first), trading at London opens. Returns equity (GBP, 1 at i0) and trades."""
+    (the higher score first), trading at London opens. block: per fund, London sessions where holding is not
+    allowed (to take given trades out). Returns equity (GBP, 1 at i0) and trades."""
     cols = list(states)
     O = np.column_stack([funds[f]["open"].reindex(lse).to_numpy() for f in cols])
     C = np.column_stack([funds[f]["close"].reindex(lse).ffill().to_numpy() for f in cols])
     want = np.column_stack([london_wanted(states[f], lse) for f in cols])
+    for j, f in enumerate(cols):
+        if block and f in block:
+            want[:, j] &= ~block[f]
     enter, leave = np.zeros_like(want), np.zeros_like(want)
     enter[:-1], leave[:-1] = want[1:], ~want[1:]  # decided before the next session's open
     score = np.column_stack([np.nan_to_num(london_scores(scores[f], lse), nan=-np.inf) for f in cols])
@@ -247,15 +252,18 @@ def adjust_actions(df: pd.DataFrame, under: pd.Series, lev: float) -> tuple[pd.D
     return out, fixes
 
 
-def load_universe(b: dict[str, pd.DataFrame]) -> tuple[dict[str, pd.DataFrame], dict[str, list]]:
-    funds, fixes = {}, {}
+def load_universe(b: dict[str, pd.DataFrame], gbpusd: pd.Series) -> tuple[dict, dict, dict]:
+    """London prices of the UNIVERSE funds: consolidations and splits undone, untraded false prices replaced by the
+    value implied by the proxy (fill_stale_prints). Also returns per fund the action fixes and the replaced days."""
+    funds, fixes, filled = {}, {}, {}
     for t, f in UNIVERSE.items():
         df = fetch_yahoo(t, max_age_days=4)
         if f.get("start"):
             df = df[df.index >= pd.Timestamp(f["start"])]
-        df, fx = adjust_actions(df, b[f["proxy"]]["c"], 3 * f["side"])
-        funds[t], fixes[t] = df, fx
-    return funds, fixes
+        df, fixes[t] = adjust_actions(df, b[f["proxy"]]["c"], 3 * f["side"])
+        funds[t] = fill_stale_prints(df, b[f["proxy"]]["c"], 3 * f["side"], gbpusd)
+        filled[t] = df.index[funds[t]["close"].to_numpy() != df["close"].to_numpy()]
+    return funds, fixes, filled
 
 
 def signal_bars(t: str, funds: dict[str, pd.DataFrame], b: dict[str, pd.DataFrame]) -> pd.DataFrame:
@@ -295,28 +303,54 @@ def universe_variants() -> list[tuple[str, dict]]:
     return v
 
 
+def run_setting(b, funds, kw: dict, cash_r, lse, i0, block: dict[str, np.ndarray] | None = None):
+    """Equity and trades of one universe setting (see universe_variants)."""
+    cols = SETS[kw["set"]]
+    bars = {t: signal_bars(t, funds, b) for t in cols}
+    states = {t: universe_state(t, bars[t], kw["entry"], kw["leave"], kw["trend"]) for t in cols}
+    oversold = {t: -rsi(bars[t]["c"], 2) for t in cols}
+    n = len(cols) if kw["slots"] == "one slot each" else int(kw["slots"].split()[2])
+    return isa_run({t: funds[t] for t in cols}, states, oversold, n, cash_r, lse, i0, block=block)
+
+
 def run_universe(b, funds, cash_r, lse, i0, bench) -> tuple[pd.DataFrame, dict, dict]:
-    bars = {t: signal_bars(t, funds, b) for t in UNIVERSE}
-    oversold = {t: -rsi(bars[t]["c"], 2) for t in UNIVERSE}
     rows, curves, trades = {}, {}, {}
     for label, kw in universe_variants():
-        cols = SETS[kw["set"]]
-        states = {t: universe_state(t, bars[t], kw["entry"], kw["leave"], kw["trend"]) for t in cols}
-        n = len(cols) if kw["slots"] == "one slot each" else int(kw["slots"].split()[2])
-        eq, t = isa_run({t: funds[t] for t in cols}, states, {t: oversold[t] for t in cols}, n, cash_r, lse, i0)
+        eq, t = run_setting(b, funds, kw, cash_r, lse, i0)
         rows[label], curves[label], trades[label] = dip_measures(eq, t, bench), eq, t
     return pd.DataFrame(rows).T, curves, trades
+
+
+def without_years(eq: pd.Series, years=()) -> dict:
+    """Yearly return and max drawdown with the given calendar years' daily returns left out (the rest chained)."""
+    r = eq.pct_change().dropna()
+    r = r[~r.index.year.isin(list(years))]
+    curve = (1 + r).cumprod()
+    span = (r.index[-1] - r.index[0]).days / 365.25 - sum(1.0 for y in years if r.index[0].year < y < r.index[-1].year)
+    return {"CAGR": curve.iloc[-1] ** (1 / span) - 1, "Max drawdown": float((curve / curve.cummax() - 1).min())}
+
+
+def best_trades_removed(out: dict, label: str, k: int = 10) -> pd.Series:
+    """The setting's equity with its k best trades taken out (the money stays in cash for those sessions)."""
+    lse, rev = out["ulse"], {v: key for key, v in NAMES.items()}
+    block: dict[str, np.ndarray] = {}
+    for r in out["utrades"][label].sort_values("ret", ascending=False).head(k).itertuples():
+        arr = block.setdefault(rev[r.asset], np.zeros(len(lse), bool))
+        arr[lse.get_loc(r.entry):lse.get_loc(r.exit)] = True
+    eq, _ = run_setting(out["b"], out["ufunds"], dict(universe_variants())[label], out["ucash"], lse, out["ui0"], block)
+    return eq
 
 
 # ------------------------------------------------------------------ report
 
 def run_all() -> dict:
     b = us_bars()
-    funds = {f: fetch_yahoo(f, max_age_days=4) for f in FUNDS}
+    gbpusd, cash = sterling()
+    ufunds, fixes, filled = load_universe(b, gbpusd)
+    funds = {f: ufunds[f] for f in FUNDS}
     last = min(min(f.index[-1] for f in funds.values()), b["QQQ"].index[-1] + pd.Timedelta(days=1))
     lse = funds["LQQ3.L"].index.union(funds["3LUS.L"].index)
     lse = lse[lse <= last]
-    gbpusd, cash = sterling()
     cash_r = cash.reindex(lse).fillna(0.0).to_numpy()
     i0 = int(lse.searchsorted(pd.Timestamp(START))) - 1
     spy = b["SPY"]["c"][b["SPY"].index >= lse[i0]]
@@ -337,7 +371,6 @@ def run_all() -> dict:
         curves[name] = eq
     tbl = pd.DataFrame(rows).T
     shorts = short_tests(b)
-    ufunds, fixes = load_universe(b)
     ulse = ufunds["LQQ3.L"].index
     for df in ufunds.values():
         ulse = ulse.union(df.index)
@@ -353,7 +386,50 @@ def run_all() -> dict:
     utbl.to_csv(out_dir / "universe_variants.csv")
     return {"table": tbl, "refs": pd.DataFrame(refs).T, "curves": curves, "trades": trades, "bench": bench,
             "shorts": shorts, "lse": lse, "i0": i0, "utable": utbl, "ucurves": ucurves, "utrades": utrades,
-            "ubench": ubench, "ufunds": ufunds, "fixes": fixes}
+            "ubench": ubench, "ufunds": ufunds, "fixes": fixes, "filled": filled, "b": b, "ulse": ulse, "ui0": ui0, "ucash": ucash}
+
+
+def without_winners_section(out: dict) -> list[str]:
+    """How much of the recommendation's lead comes from 2020 and from its best trades."""
+    rec, bench = out["ucurves"][RECOMMENDED], out["ubench"]
+    lq = out["ufunds"]["LQQ3.L"]["close"]
+    lq = lq[lq.index >= rec.index[0]]
+    lines_ = {"Recommended": rec, "S&P 500 in pounds": bench,
+              "Your current rule (LQQ3 above its 200-day avg)":
+                  out["curves"]["Your current ISA rule: LQQ3 while QQQ is above its 200-day avg"],
+              "LQQ3 buy and hold": lq / lq.iloc[0]}
+    rows = {}
+    for name, eq in lines_.items():
+        best = int(yearly_returns(eq).idxmax())
+        a, b, c = without_years(eq), without_years(eq, [2020]), without_years(eq, [best])
+        rows[name] = {"All years": f"{a['CAGR']:.1%}", "Without 2020": f"{b['CAGR']:.1%}",
+                      "Without its own best year": f"{c['CAGR']:.1%} (no {best})",
+                      "Max drawdown": f"{a['Max drawdown']:.0%}", "Max drawdown without 2020": f"{b['Max drawdown']:.0%}"}
+    t = out["utrades"][RECOMMENDED]
+    split = pd.Timestamp(SPLIT)
+    early = lambda e: without_years(e[e.index <= split], [2020])["CAGR"]  # noqa: E731
+    sp_all = without_years(bench)["CAGR"]
+    cut = {k: without_years(best_trades_removed(out, RECOMMENDED, k)) for k in (5, 10, 20)}
+    top = t.sort_values("ret", ascending=False).head(10)
+    return [
+        "## Without the biggest winners", "",
+        "2020 (the crash and the rebound) was the recommendation's best year. Its daily returns taken out, the rest "
+        "chained together (all lines over the same years):", "",
+        md(pd.DataFrame(rows).T, "Rule"), "",
+        f"2017-21 without 2020: {early(rec):.1%} a year against {early(bench):.1%} for the S&P 500 in pounds (2022-26 "
+        f"unchanged). Trades in 2020: {int((t['entry'].dt.year == 2020).sum())} of {len(t)}; win rate without them "
+        f"{(t.loc[t['entry'].dt.year != 2020, 'ret'] > 0).mean():.0%}.", "",
+        "With its best trades taken out (the money stays in cash for those sessions): " + "; ".join(
+            f"{k} best: {v['CAGR']:.1%} a year ({v['CAGR'] - sp_all:+.1%} against the S&P)" for k, v in cut.items())
+        + ". The ten best: " + ", ".join(f"{r.asset} {r.entry.date()} {r.ret:+.0%}" for r in top.itertuples()) + ".",
+        ""]
+
+
+def _years(days: pd.DatetimeIndex) -> str:
+    """'n (2017: a, 2018: b, ...)' for the days from START."""
+    days = days[days >= pd.Timestamp(START)]
+    by = pd.Series(1, index=days).groupby(days.year).size()
+    return f"{len(days)} ({', '.join(f'{y}: {k}' for y, k in by.items())})" if len(days) else "0"
 
 
 def universe_section(out: dict) -> list[str]:
@@ -375,7 +451,8 @@ def universe_section(out: dict) -> list[str]:
         rows[f["name"]] = {"Tracks": f["tracks"], "Issuer": f["issuer"], "Used from": str(df.index[0].date())
                            if df.index[0] > pd.Timestamp("2016-01-01") else "before 2017",
                            "Median GBP traded a day (last year)": f"{(last['close'] / 100 * last['volume']).median():,.0f}",
-                           "Split / consolidation fixed": ", ".join(f"{d} x{u:g}" for d, _, u in fixes[t]) or "-"}
+                           "Split / consolidation fixed": ", ".join(f"{d} x{u:g}" for d, _, u in fixes[t]) or "-",
+                           "Untraded days repriced (backtest years)": _years(out["filled"][t])}
     funds_tbl = pd.DataFrame(rows).T
     group = pd.Series([s.split(":")[0] for s in utbl.index], index=utbl.index)
     by = utbl.groupby(group, sort=False).agg(**{
@@ -391,6 +468,13 @@ def universe_section(out: dict) -> list[str]:
              for x in utbl.index if x.startswith("indices + semis and gold miners (7)")]
     d_cagr = pd.Series([utbl.loc[b_, "CAGR"] - utbl.loc[a, "CAGR"] for a, b_ in pairs])
     d_dd = pd.Series([utbl.loc[b_, "Max drawdown"] - utbl.loc[a, "Max drawdown"] for a, b_ in pairs])
+    fam = utbl[utbl.index.str.startswith(RECOMMENDED.split(":")[0] + ": IBS < 0.1")]
+    halves = fam[["2017-21 vs S&P", "2022-26 vs S&P"]]
+    beat, worst = int((halves > 0).all(axis=1).sum()), float(halves.min().min())
+    family_text = f"{beat} of the {len(fam)} IBS < 0.1 settings on these two funds beat the S&P in both halves"
+    if beat < len(fam):
+        family_text += (" and the rest were level with it (within 0.5%)" if worst > -0.005 else
+                        f" and none trailed it by more than {-worst:.1%} in either half")
     shown = [x for x in [RECOMMENDED, PREREGISTERED, pick] if x in utbl.index]
     shown += [x for x in both.sort_values("CAGR", ascending=False).index if x not in shown][:8]
     lines = [
@@ -408,7 +492,7 @@ def universe_section(out: dict) -> list[str]:
         f"**Recommended: {RECOMMENDED}.** Half the ISA in LQQ3 (Nasdaq-100 3x) and half in 3LUS (S&P 500 3x): buy a "
         "fund at the London open after its index (QQQ for LQQ3, SPY for 3LUS) closes in the bottom 10% of its day's "
         "range, sell at the London open after the index closes above its 5-day average, cash in between. It was "
-        "picked after seeing the results, but every IBS < 0.1 setting on these two funds beat the S&P in both halves. "
+        f"picked after seeing the results, but {family_text}. "
         "The European index funds and the short funds made results worse; Leverage Shares' semiconductor and gold "
         "miner funds (prices only from April 2024) did not improve it.", "",
         "Rows: the recommendation; the rule fixed in advance from the US nine-fund test (backtest/DAILY.md), before "
@@ -433,6 +517,7 @@ def universe_section(out: dict) -> list[str]:
         worst = utrades[RECOMMENDED].sort_values("ret").head(5)
         lines += ["", "Worst trades of the recommendation: " + ", ".join(
             f"{r.asset} {r.entry.date()} to {r.exit.date()} {r.ret:+.1%}" for r in worst.itertuples()) + ".", ""]
+        lines += without_winners_section(out)
     return lines
 
 
@@ -518,7 +603,13 @@ def report(out: dict) -> str:
         "- 3x funds can lose most of their value in a crash, and nothing can be sold before the next London open after "
         "a US-close signal; the London open of a 3x fund can also have a wide spread.",
         "- The short-side test uses US funds at the US open; London short funds trade at the London open, which the "
-        "long-side results show can cost several points a year."]
+        "long-side results show can cost several points a year.",
+        "- Prices on days nothing traded: Yahoo often repeats the last price (about a third of 2018 for LQQ3 and 3LUS) "
+        "and sometimes shows a false one (3LUS, 3LDE and 3LEU +15-27% on 26-27 June 2017, back the next day). Those "
+        "days are valued at the price implied by the index since the last real price (fill_stale_prints; within "
+        "about 2% a day of real prices where both exist), so trades happen on schedule as with a market maker's "
+        "quote. Trading at the stale or false prices instead would move single years by more than ten points, so "
+        "2017-18 are the least certain years."]
     return "\n".join(lines)
 
 

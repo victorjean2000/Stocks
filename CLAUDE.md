@@ -79,7 +79,8 @@ signals at the US close, LQQ3 traded at the next London open or close in pounds,
 
 `python -m backtest.isa` (about 25 s) builds the ISA strategy from the London 3x funds the user can hold (WisdomTree
 LQQ3, 3LUS, 3UKL, 3LDE, 3LEU, 3UKS; Leverage Shares 3SMH, 3GDX from April 2024; real prices in pence, splits and
-consolidations undone by `adjust_actions`) on the daily dip rules: US-ETF signals at the US close (own London prices
+consolidations undone by `adjust_actions`; untraded days whose Yahoo price is stale or false valued from the
+index by `fill_stale_prints` in `backtest/lqq3.py`) on the daily dip rules: US-ETF signals at the US close (own London prices
 for the FTSE, DAX and EURO STOXX), next London open, sterling cash, S&P 500 in pounds as the benchmark. `RECOMMENDED`
 in `backtest/isa.py` is the current answer (LQQ3 + 3LUS half each, IBS < 0.1, sell above the 5-day average). Whether 3x short funds help is tested on the US funds
 (TQQQ / UPRO long, SQQQ / SPXU short; bars in `data/benchmarks/longshort_daily.parquet`) because London short-fund
