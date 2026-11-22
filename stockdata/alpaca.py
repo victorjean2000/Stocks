@@ -138,6 +138,34 @@ def fetch_bars(sess: requests.Session, symbols: list[str], start: str, end: str,
     return df
 
 
+def fetch_intraday(sess: requests.Session, symbols: list[str], start: str, end: str, timeframe: str = "30Min",
+                   adjustment: str = "all", feed: str = "sip") -> pd.DataFrame:
+    """Intraday bars for `symbols` (pre-market, regular session and after hours: 4:00-20:00 New York), with `ts`
+    the bar's start in New York time and `date` its session date."""
+    rows: list[tuple] = []
+    token = None
+    while True:
+        params = {"symbols": ",".join(symbols), "timeframe": timeframe, "start": start, "end": end,
+                  "adjustment": adjustment, "feed": feed, "limit": 10000, "sort": "asc"}
+        if token:
+            params["page_token"] = token
+        data = get(sess, f"{DATA_URL}/v2/stocks/bars", params=params, limiter=LIMITER).json()
+        for sym, bars in (data.get("bars") or {}).items():
+            rows += [(sym, b["t"], b["o"], b["h"], b["l"], b["c"], b.get("v", 0)) for b in bars]
+        token = data.get("next_page_token")
+        if not token:
+            break
+    df = pd.DataFrame(rows, columns=["ticker", "ts", "o", "h", "l", "c", "v"])
+    if df.empty:
+        return df
+    df["ts"] = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(NY)
+    df["date"] = df["ts"].dt.tz_localize(None).dt.normalize()
+    for k in ("o", "h", "l", "c"):
+        df[k] = df[k].astype("float64")
+    df["v"] = df["v"].fillna(0).astype("int64")
+    return df
+
+
 def fetch_bars_batched(sess: requests.Session, symbols: list[str], start: str, end: str,
                        adjustment: str, feed: str, batch_size: int = 100, workers: int = 4,
                        progress_every: int = 10) -> pd.DataFrame:

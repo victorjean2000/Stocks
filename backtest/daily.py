@@ -106,11 +106,12 @@ def load() -> Data:
 # ------------------------------------------------------------------ engine
 
 def run(O: np.ndarray, C: np.ndarray, enter: np.ndarray, leave: np.ndarray, score: np.ndarray, n_pos: int,
-        cost_bps: float, cash_r: np.ndarray, i0: int, max_hold: int | None = None):
+        cost_bps: float, cash_r: np.ndarray, i0: int, max_hold: int | None = None, size: np.ndarray | None = None):
     """Up to n_pos positions of 1/n_pos of the account each. At each close, holdings with a `leave` signal (or held
     max_hold sessions) are sold at the next open, and free places go to the `enter` candidates with the highest
-    score, bought at the next open. C must be forward-filled. Returns equity (1.0 at i0's close), the invested
-    share of the account, and trades (column, entry index, exit index, entry price, exit price, return)."""
+    score, bought at the next open. C must be forward-filled. size: share of a place to buy at each step (default
+    all of it). Returns equity (1.0 at i0's close), the invested share of the account, and trades (column, entry
+    index, exit index, entry price, exit price, return)."""
     n_t = C.shape[0]
     cost = cost_bps / 1e4
     cash = 1.0
@@ -132,7 +133,7 @@ def run(O: np.ndarray, C: np.ndarray, enter: np.ndarray, leave: np.ndarray, scor
             if buy:
                 mark = cash + sum(sh * (O[i, j] if np.isfinite(O[i, j]) else C[i - 1, j]) for j, (sh, _, _) in pos.items())
                 for j in buy:
-                    px, amount = O[i, j], min(mark / n_pos, cash)
+                    px, amount = O[i, j], min(mark / n_pos * (1.0 if size is None else size[i, j]), cash)
                     if len(pos) >= n_pos or amount <= 0:
                         break
                     if np.isfinite(px) and j not in pos:

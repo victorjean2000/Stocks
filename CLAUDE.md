@@ -87,6 +87,13 @@ in `backtest/isa.py` is the current answer (LQQ3 + 3LUS half each, IBS < 0.1, se
 prices are not approved. Results: `backtest/ISA.md`, which also shows the recommendation without 2020 or its
 best trades, what it captures, and combined with the 200-day rule (`combination_section`).
 
+`python -m backtest.isa_tests` (about 40 s) tests that recommendation thoroughly and explains why it works: the index's
+moves after closes near the day's low (IBS deciles, the 10 days after, hour by hour from Alpaca 30-minute bars cached in
+`data/benchmarks/us_30min.parquet` via `stockdata.alpaca.fetch_intraday`), a threshold x exit grid, costs, fill timing,
+a random-timing test, a block bootstrap, walk-forward, one-at-a-time extra rules (filters, exits, stops, sizing), and
+hourly variants (decisions at the London close, the US 3x funds at other times of day). `london_run` trades the London
+funds at their open or close; `event_run` is the same engine on any event axis. Results: `backtest/ISA_TESTS.md`.
+
 ## Paper trading
 
 `python -m trading status` / `run --dry-run` / `run` paper-trades two strategies from `backtest/strategies.py`,
