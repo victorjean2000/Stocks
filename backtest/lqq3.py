@@ -93,7 +93,16 @@ YAHOO_APPROVED = {"LQQ3.L": "2026-11-05", "3LUS.L": "2026-11-19",
                   # WisdomTree and Leverage Shares funds in the user's ISA (approved 2026-11-19: "check the funds
                   # available in ISA from those two companies ... dont just only use the funds that I mention")
                   **{f"{t}.L": "2026-11-19" for t in ("3UKL", "3LDE", "3LEU", "3LSI", "3LOI", "3ULS", "3UKS",
-                                                       "3SMH", "3XLF", "3XLE", "3GDX")}}
+                                                       "3SMH", "3XLF", "3XLE", "3GDX")},
+                  # the US ETFs' long daily history (QQQ from 1999, SPY from 1993; Alpaca starts in 2016), approved
+                  # 2026-11-22 for the long-history test of the ISA dip rule (backtest/long_history.py)
+                  "SPY": "2026-11-22", "QQQ": "2026-11-22"}
+# where each quote currency trades, and when (minutes after midnight there) the day's bar is final
+YAHOO_MARKET = {"GBp": (LONDON, 16 * 60 + 45), "USD": ("America/New_York", 16 * 60 + 20)}
+
+
+def yahoo_currency(symbol: str) -> str:
+    return "GBp" if symbol.endswith(".L") else "USD"
 
 
 def fetch_lqq3(max_age_days: int | None = None) -> pd.DataFrame:
@@ -102,10 +111,11 @@ def fetch_lqq3(max_age_days: int | None = None) -> pd.DataFrame:
 
 
 def fetch_yahoo(symbol: str, max_age_days: int | None = None) -> pd.DataFrame:
-    """Daily prices in pence of an approved London fund (YAHOO_APPROVED), bad prints removed.
+    """Daily prices of an approved symbol (YAHOO_APPROVED): London funds in pence, US ETFs in dollars (with
+    `adjclose`, adjusted for dividends and splits), bad prints removed.
 
     max_age_days: reuse the cache if its last bar is at most this old (None: always download).
-    Today's bar is dropped until London has closed (16:30 plus a margin)."""
+    Today's bar is dropped until its market has closed (plus a margin)."""
     if symbol not in YAHOO_APPROVED:
         raise ValueError(f"{symbol}: Yahoo prices are approved only for {sorted(YAHOO_APPROVED)} (see CLAUDE.md)")
     path = paths().root / "benchmarks" / f"{symbol}.parquet"
@@ -116,34 +126,38 @@ def fetch_yahoo(symbol: str, max_age_days: int | None = None) -> pd.DataFrame:
     r = requests.get(YAHOO_CHART + symbol, params={"period1": 0, "period2": int(time.time()), "interval": "1d"},
                      headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
     r.raise_for_status()
-    df = parse_chart(r.json())
+    df = parse_chart(r.json(), currency=yahoo_currency(symbol))
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path)
     return df
 
 
-def parse_chart(payload: dict, now: pd.Timestamp | None = None) -> pd.DataFrame:
-    """Yahoo chart JSON -> daily bars in pence. A last bar whose close is still blank takes the quoted
-    market price once London has closed that day (whenever its last trade was); a bar of today before
-    the close is left out."""
+def parse_chart(payload: dict, now: pd.Timestamp | None = None, currency: str = "GBp") -> pd.DataFrame:
+    """Yahoo chart JSON -> daily bars in the quote currency (pence for London funds, dollars for US ETFs, which
+    also get `adjclose`). A last bar whose close is still blank takes the quoted market price once its market has
+    closed that day (whenever its last trade was); a bar of today before the close is left out."""
     res = payload["chart"]["result"][0]
     meta = res["meta"]
-    if meta.get("currency") != "GBp":
-        raise ValueError(f"{meta.get('symbol', SYMBOL)} is quoted in {meta.get('currency')}, expected GBp (pence)")
+    if meta.get("currency") != currency:
+        raise ValueError(f"{meta.get('symbol', SYMBOL)} is quoted in {meta.get('currency')}, expected {currency}")
+    zone, final = YAHOO_MARKET[currency]
     q = res["indicators"]["quote"][0]
-    idx = pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_convert(LONDON).tz_localize(None).normalize()
-    df = pd.DataFrame({k: q[k] for k in ("open", "high", "low", "close", "volume")}, index=idx).astype(float)
+    idx = pd.to_datetime(res["timestamp"], unit="s", utc=True).tz_convert(zone).tz_localize(None).normalize()
+    cols = {k: q[k] for k in ("open", "high", "low", "close", "volume")}
+    if currency != "GBp" and res["indicators"].get("adjclose"):
+        cols["adjclose"] = res["indicators"]["adjclose"][0]["adjclose"]
+    df = pd.DataFrame(cols, index=idx).astype(float)
     df = df[~df.index.duplicated(keep="last")].sort_index()
-    now = (now or pd.Timestamp.now(tz=LONDON)).tz_convert(LONDON)
-    mkt = pd.Timestamp(meta.get("regularMarketTime", 0), unit="s", tz="UTC").tz_convert(LONDON)
+    now = (now or pd.Timestamp.now(tz=zone)).tz_convert(zone)
+    mkt = pd.Timestamp(meta.get("regularMarketTime", 0), unit="s", tz="UTC").tz_convert(zone)
     last = df.index[-1]
-    # London has closed for the last bar's day: its last quoted price is the close, even when the last trade
-    # came before the 16:30 auction (LQQ3 trades thinly)
-    shut = last < now.tz_localize(None).normalize() or now.hour * 60 + now.minute >= 16 * 60 + 45
+    # the market has closed for the last bar's day: its last quoted price is the close, even when the last trade
+    # came before the closing auction (LQQ3 trades thinly)
+    shut = last < now.tz_localize(None).normalize() or now.hour * 60 + now.minute >= final
     if pd.isna(df["close"].iloc[-1]) and mkt.tz_localize(None).normalize() == last and shut and \
             meta.get("regularMarketPrice"):
         df.loc[last, "close"] = float(meta["regularMarketPrice"])
-    if now.hour * 60 + now.minute < 16 * 60 + 45:
+    if now.hour * 60 + now.minute < final:
         df = df[df.index < now.tz_localize(None).normalize()]
     df = df.dropna(subset=["open", "close"])
     return drop_bad_prints(df)

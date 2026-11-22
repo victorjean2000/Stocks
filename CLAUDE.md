@@ -94,6 +94,13 @@ a random-timing test, a block bootstrap, walk-forward, one-at-a-time extra rules
 hourly variants (decisions at the London close, the US 3x funds at other times of day). `london_run` trades the London
 funds at their open or close; `event_run` is the same engine on any event axis. Results: `backtest/ISA_TESTS.md`.
 
+`python -m backtest.long_history` (about 15 s) runs the same rule over 2000-2026, through the 2000-02 and 2007-09 bear
+markets, before the years it was chosen on: Yahoo's daily SPY / QQQ before 2016 (approved; its SPY closes are wrong on
+some extreme days, so Alpaca is used from 2016 and a Nasdaq-100-only version is shown), simulated daily-reset 3x funds
+charged what the real TQQQ / UPRO cost against 3x their index in 2016-26 (`leveraged`, `running_cost`), next US open,
+in dollars; also 2x / 1x, the 200-day filter, half-size buys below the 200-day average (checked on the London funds),
+the trend rule and buy-and-hold. Results: `backtest/LONG_HISTORY.md`.
+
 ## Paper trading
 
 `python -m trading status` / `run --dry-run` / `run` paper-trades two strategies from `backtest/strategies.py`,
@@ -116,11 +123,12 @@ Rules for this repo:
 - Never print, log or commit `ALPACA_API_KEY_ID`, `ALPACA_API_SECRET_KEY`, `SEC_USER_AGENT` or
   `STOCKDATA_SNAPSHOT_KEY`. Never commit anything under `data/` (it is git-ignored).
 - Data sources are Alpaca (data/paper-api) and SEC EDGAR only; ask before adding another source. One exception:
-  daily prices of London-listed funds the user approved, from Yahoo Finance, listed in `YAHOO_APPROVED` in
-  `backtest/lqq3.py` (LQQ3.L on 2026-11-05; on 2026-11-19 3LUS.L and the WisdomTree / Leverage Shares 3x funds the user
-  can hold in their ISA: 3UKL, 3LDE, 3LEU, 3LSI, 3LOI, 3ULS, 3UKS, 3SMH, 3XLF, 3XLE, 3GDX), fetched only through
-  `fetch_yahoo` for the ISA backtests (`backtest/lqq3.py`, `backtest/isa.py`), cached in `data/benchmarks/`, never
-  committed. Add a fund only when the user names it. Pound/dollar rates and sterling cash still come from Alpaca (FXB).
+  daily prices from Yahoo Finance of symbols the user approved, listed in `YAHOO_APPROVED` in `backtest/lqq3.py`:
+  London-listed funds for the ISA backtests (LQQ3.L on 2026-11-05; on 2026-11-19 3LUS.L and the WisdomTree / Leverage
+  Shares 3x funds the user can hold in their ISA: 3UKL, 3LDE, 3LEU, 3LSI, 3LOI, 3ULS, 3UKS, 3SMH, 3XLF, 3XLE, 3GDX), and
+  on 2026-11-22 the long daily history of SPY and QQQ (used before 2016, where Alpaca has none) for
+  `backtest/long_history.py`. Fetched only through `fetch_yahoo`, cached in `data/benchmarks/`, never committed. Add a
+  symbol only when the user approves it. Pound/dollar rates and sterling cash still come from Alpaca (FXB).
 - The repository is public: never publish an unencrypted snapshot (Alpaca data cannot be redistributed).
 - Market cap is point-in-time: shares come only from filings filed before the date (one-session lag).
   Never back-fill today's share count into history.
