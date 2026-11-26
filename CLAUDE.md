@@ -64,6 +64,12 @@ month end; the result depends a lot on the day) and is judged on 2017-21, checke
 `backtest/MOMENTUM_REFINE.md`. The simulator options it uses (`take_profit`, `trail_stop`, `stop_loss`,
 `extension_exit`, `keep_rank`, `reweight`, `offset`, `cash_yield`) are `Params` fields in `backtest/momentum_trend.py`.
 
+`python -m backtest.momentum_filter` (about 40 s on 4 cores) runs the live momentum strategy (top-30 buffer) with market
+filters: hold the stocks only while SPY or QQQ (or both / either) is above its 50, 100, 150 or 200-day average, checked
+daily (3 closes to switch) or only on the monthly decision day (`market_index`, `market_sma`, `market_days`,
+`market_check` in `Params`; index closes from Alpaca via `index_closes`), at the same 10 decision days, picked on 2017-21,
+checked on 2022-26. Results: `backtest/MOMENTUM_FILTER.md` (no filter beat the base).
+
 `python -m backtest.daily` (about 15 s) tests daily high-win-rate rules: buying short dips in QQQ / SPY (traded 1x,
 2x or 3x: QLD, TQQQ, SSO, UPRO) on RSI(2), IBS, N-day lows or down streaks, in nine 3x index and sector funds at once
 (`FUNDS`, signalled by their unleveraged ETFs, bars cached in `data/benchmarks/funds_daily.parquet`), and in the 500

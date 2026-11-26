@@ -277,3 +277,43 @@ def test_idle_cash_earns_tbills_only_when_asked():
     assert simulate(m, p).equity.iloc[-1] == pytest.approx(p.capital)
     eq = simulate(m, dataclasses.replace(p, cash_yield=True)).equity
     assert eq.iloc[-1] / eq.iloc[0] == pytest.approx(1.0001 ** 29)
+
+
+def _filter_case(dip_days: list[str]):
+    """One stock held by a monthly rotation, an index rising steadily except on `dip_days` (10% lower)."""
+    idx = pd.bdate_range("2019-01-01", periods=80)
+    close = pd.DataFrame({"A": np.linspace(50, 60, 80)}, index=idx)
+    m = _scored_market(close, pd.DataFrame({"A": 1.0}, index=idx))
+    index = pd.Series(np.linspace(100, 180, 80), index=idx)
+    index.loc[pd.to_datetime(dip_days)] *= 0.9
+    m.indices = {"SPY": index, "QQQ": index * 2}
+    p = Params(start=str(idx[0].date()), n_positions=1, sector_cap=1, momentum="r6_1", monthly=True,
+               refill="monthly", golden_cross=False, trend_entry=False, trend_exit=False, market_filter=True,
+               market_sma=5, market_days=1)
+    return m, p
+
+
+def test_monthly_market_check_ignores_a_dip_between_decisions():
+    m, p = _filter_case(["2019-02-11", "2019-02-12"])
+    daily = simulate(m, p).trades.sort_values("entry")
+    assert daily.iloc[0]["reason"] == "market" and daily.iloc[0]["exit"] == pd.Timestamp("2019-02-12")
+    assert daily.iloc[1]["entry"] == pd.Timestamp("2019-03-01")  # back at the next monthly decision
+    monthly = simulate(m, dataclasses.replace(p, market_check="monthly")).trades
+    assert len(monthly) == 1 and monthly.iloc[0]["reason"] == "open"
+
+
+def test_monthly_market_check_sits_out_the_month_after_a_low_decision_day():
+    m, p = _filter_case(["2019-02-28"])  # the February decision day closes below the average
+    t = simulate(m, dataclasses.replace(p, market_check="monthly")).trades.sort_values("entry")
+    assert t.iloc[0]["exit"] == pd.Timestamp("2019-03-01") and t.iloc[0]["reason"] == "market"
+    assert t.iloc[1]["entry"] == pd.Timestamp("2019-04-01")  # back after the March decision
+
+
+def test_market_filter_on_qqq_both_or_either():
+    idx = pd.bdate_range("2019-01-01", periods=30)
+    up = pd.Series(np.linspace(100, 130, 30), index=idx)
+    down = pd.Series(np.linspace(130, 100, 30), index=idx)
+    m = _market(pd.DataFrame({"A": up}), indices={"SPY": up, "QQQ": down})
+    spy_on, qqq_on = m.risk_on(5, 1, "SPY"), m.risk_on(5, 1, "QQQ")
+    assert spy_on.iloc[-1] and not qqq_on.iloc[-1]
+    assert not m.risk_on(5, 1, "SPY+QQQ").iloc[-1] and m.risk_on(5, 1, "SPY|QQQ").iloc[-1]

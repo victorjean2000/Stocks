@@ -105,6 +105,13 @@ def yahoo_currency(symbol: str) -> str:
     return "GBp" if symbol.endswith(".L") else "USD"
 
 
+def yahoo_cache(symbol: str):
+    """Cache file of a Yahoo symbol in data/benchmarks/. US ETFs get a yahoo_ prefix: data/benchmarks/SPY.parquet holds
+    Alpaca's SPY closes (backtest.momentum_trend.spy)."""
+    name = symbol if symbol.endswith(".L") else f"yahoo_{symbol}"
+    return paths().root / "benchmarks" / f"{name}.parquet"
+
+
 def fetch_lqq3(max_age_days: int | None = None) -> pd.DataFrame:
     """Daily LQQ3 prices in pence (open, high, low, close, volume), bad prints removed."""
     return fetch_yahoo(SYMBOL, max_age_days)
@@ -118,7 +125,7 @@ def fetch_yahoo(symbol: str, max_age_days: int | None = None) -> pd.DataFrame:
     Today's bar is dropped until its market has closed (plus a margin)."""
     if symbol not in YAHOO_APPROVED:
         raise ValueError(f"{symbol}: Yahoo prices are approved only for {sorted(YAHOO_APPROVED)} (see CLAUDE.md)")
-    path = paths().root / "benchmarks" / f"{symbol}.parquet"
+    path = yahoo_cache(symbol)
     if max_age_days is not None and path.exists():
         df = pd.read_parquet(path)
         if (pd.Timestamp.now(tz=LONDON).tz_localize(None).normalize() - df.index.max()).days <= max_age_days:

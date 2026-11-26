@@ -72,3 +72,10 @@ def test_parse_chart_reads_dollar_prices_with_the_adjusted_close():
     assert len(during) == 1  # today's bar waits for the New York close
     with pytest.raises(ValueError):
         parse_chart(p, currency="GBp")
+
+
+def test_yahoo_us_prices_do_not_share_the_alpaca_spy_cache():
+    from backtest.lqq3 import yahoo_cache
+    from stockdata.config import paths
+    assert yahoo_cache("SPY") != paths().root / "benchmarks" / "SPY.parquet"  # momentum_trend.spy() keeps Alpaca's
+    assert yahoo_cache("LQQ3.L").name == "LQQ3.L.parquet"

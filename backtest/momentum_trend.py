@@ -15,6 +15,9 @@ Rules (signals at the close of day t, orders filled at the open of day t+1):
 Optional rules (Params fields), run as variants:
   market_filter: when SPY closes below its 200-day average 3 days in a row, sell everything
     at the next open and stay in cash; buying resumes after 3 closes in a row above it.
+    market_index picks the index (SPY, QQQ, SPY+QQQ: both above, SPY|QQQ: either above), market_sma the average,
+    market_days the closes in a row to switch (default confirm_days), and market_check="monthly" checks only at
+    the monthly decisions (cash until the next one when the index closes below its average then).
   max_vol_pct: skip candidates whose 6-month volatility is above this percentile of the
     universe that day (0.8 = never buy the most volatile 20%). Holdings are not sold for it.
   momentum="vol_adjusted": rank on each return divided by 6-month volatility.
@@ -69,6 +72,9 @@ class Params:
     death_cross_exit: bool = False
     market_filter: bool = False  # SPY vs its market_sma-day average, confirm_days closes to switch
     market_sma: int = 200
+    market_index: str = "SPY"  # SPY | QQQ | SPY+QQQ (both above) | SPY|QQQ (either above)
+    market_days: int | None = None  # closes in a row to switch (None: confirm_days)
+    market_check: str = "daily"  # daily | monthly (only at the monthly decisions, on that day's close)
     max_vol_pct: float | None = None  # skip candidates above this universe percentile of 6-month vol
     earnings_days: int = 0  # hold nothing within this many sessions of an earnings release
     pool: int | None = None  # only the `pool` largest companies by market cap (point-in-time)
@@ -102,6 +108,7 @@ class Market:
     universe: pd.DataFrame
     sector: pd.Series
     benchmark: pd.Series | None = None  # SPY close on the same dates (market filter)
+    indices: dict[str, pd.Series] | None = None  # SPY and QQQ closes on the same dates (market_index)
     size_rank: pd.DataFrame | None = None  # rank by market cap within the universe (1 = largest)
     earnings: pd.DataFrame | None = None  # ticker, session: first session reacting to each release
     cash_r: pd.Series | None = None  # daily T-bill return (BIL) on the same dates
@@ -151,12 +158,22 @@ class Market:
             self._cache["vol_rank"] = self.features()["vol126"].where(self.universe).rank(axis=1, pct=True)
         return self._cache["vol_rank"]
 
-    def risk_on(self, n: int, days: int) -> pd.Series:
-        key = ("risk_on", n, days)
+    def risk_on(self, n: int, days: int, index: str = "SPY") -> pd.Series:
+        """True while the index is above its n-day average (days closes in a row to switch). index: SPY, QQQ,
+        SPY+QQQ (both above) or SPY|QQQ (either above)."""
+        key = ("risk_on", n, days, index)
         if key not in self._cache:
-            if self.benchmark is None:
-                raise ValueError("the market filter needs Market.benchmark (SPY closes)")
-            self._cache[key] = regime(self.benchmark.reindex(self.close.index).ffill(), n, days)
+            if "+" in index or "|" in index:
+                parts = [self.risk_on(n, days, x) for x in index.replace("+", "|").split("|")]
+                self._cache[key] = (parts[0] & parts[1]) if "+" in index else (parts[0] | parts[1])
+            elif index == "SPY" and self.indices is None:
+                if self.benchmark is None:
+                    raise ValueError("the market filter needs Market.benchmark (SPY closes)")
+                self._cache[key] = regime(self.benchmark.reindex(self.close.index).ffill(), n, days)
+            else:
+                if self.indices is None or index not in self.indices:
+                    raise ValueError(f"the market filter needs Market.indices[{index!r}]")
+                self._cache[key] = regime(self.indices[index].reindex(self.close.index).ffill(), n, days)
         return self._cache[key]
 
     def blackout(self, days: int) -> pd.DataFrame:
@@ -166,6 +183,15 @@ class Market:
                 raise ValueError("the earnings blackout needs Market.earnings (stockdata.load_earnings)")
             self._cache[key] = event_window(self.earnings, self.close.index, self.close.columns, days)
         return self._cache[key]
+
+
+def index_closes(index: pd.DatetimeIndex, symbols=("SPY", "QQQ")) -> dict[str, pd.Series]:
+    """Adjusted closes of the market filter's indices (Alpaca, the strategy search's ETF cache) on `index`."""
+    from .strategies import etf_bars
+
+    bars = etf_bars()
+    return {s: bars[bars["ticker"] == s].set_index("date")["c"].astype(float).sort_index().reindex(index).ffill()
+            for s in symbols}
 
 
 def tbill_returns(index: pd.DatetimeIndex) -> pd.Series:
@@ -213,6 +239,11 @@ def load_market(start: str = "2016-01-01", benchmark: bool = True, earnings: boo
             m.cash_r = tbill_returns(c.index)
         except Exception as e:  # network or cache trouble: only the cash_yield variants need it
             log.warning("no T-bill returns (%s); cash_yield variants will fail", e)
+    if benchmark:
+        try:
+            m.indices = index_closes(c.index)
+        except Exception as e:  # only the QQQ market filters need it
+            log.warning("no SPY / QQQ closes for the market filter (%s)", e)
     if earnings:
         try:
             ev = load_earnings(c.columns)
@@ -274,7 +305,10 @@ def simulate(m: Market, p: Params) -> Result:
     C = m.close.ffill().to_numpy()
     E, X, S = eligible.to_numpy(), exit_sig.to_numpy(), score.to_numpy()
     n_t, n_s = C.shape
-    on = m.risk_on(p.market_sma, p.confirm_days).to_numpy() if p.market_filter else np.ones(n_t, bool)
+    on = np.ones(n_t, bool)
+    if p.market_filter:
+        days = 1 if p.market_check == "monthly" else (p.market_days or p.confirm_days)
+        on = m.risk_on(p.market_sma, days, p.market_index).reindex(dates).fillna(True).to_numpy(bool)
     B = m.blackout(p.earnings_days).to_numpy() if p.earnings_days else None
     EXT = ext.to_numpy() if ext is not None else None
     if p.cash_yield and m.cash_r is None:
@@ -284,6 +318,9 @@ def simulate(m: Market, p: Params) -> Result:
     decide = np.zeros(n_t, bool)
     last = np.flatnonzero(dates.month[1:] != dates.month[:-1]) + p.offset
     decide[last[last < n_t - 1]] = True
+    if p.market_filter and p.market_check == "monthly":  # the state at the last decision holds until the next one
+        k = np.maximum.accumulate(np.where(decide, np.arange(n_t), -1))
+        on = np.where(k >= 0, on[np.clip(k, 0, None)], on)
     sec_codes, sec_names = pd.factorize(m.sector)
     i0 = int(dates.searchsorted(pd.Timestamp(p.start)))
     cost = p.cost_bps / 1e4
