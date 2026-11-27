@@ -107,6 +107,13 @@ charged what the real TQQQ / UPRO cost against 3x their index in 2016-26 (`lever
 in dollars; also 2x / 1x, the 200-day filter, half-size buys below the 200-day average (checked on the London funds),
 the trend rule and buy-and-hold. Results: `backtest/LONG_HISTORY.md`.
 
+`python -m backtest.pairs` (about 20 s) tests pairs trading (short the stock that ran ahead of its partner, buy the
+laggard, close when they meet): 13 famous pairs (KO / PEP, V / MA, ...) with their correlation, drift, half-life and an
+ADF stationarity test (`half_life`, `adf_t`), a z-score rule on the log price ratio (lookback x entry grid picked on
+2017-21, checked on 2022-26; both legs traded at the next open with costs and a borrow fee, `run_pair`), and pairs picked
+by the data without hindsight every six months (closest normalised prices, Gatev-Goetzmann-Rouwenhorst, or the most
+mean-reverting by ADF; `data_picked`). Results: `backtest/PAIRS.md` (it earned about nothing after costs).
+
 ## Paper trading
 
 `python -m trading status` / `run --dry-run` / `run` paper-trades two strategies from `backtest/strategies.py`,
